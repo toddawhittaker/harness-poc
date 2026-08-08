@@ -1,0 +1,882 @@
+"""Negative-auth tests — the only mandatory test file (SPEC §6).
+
+Written before the validation code exists. They gate every stage: nothing in
+this repo is "done" while one of them is red, and no check may be softened to
+turn one green.
+
+HOW THESE TESTS GET BAD TOKENS — AND WHY THAT DOES NOT MIGRATE
+--------------------------------------------------------------
+The correctly-signed-but-wrong tokens here (expired, wrong `aud`, wrong `iss`,
+missing claims) are signed in-process with identity-stub's own RSA private key,
+read from the host side of the ./data bind mount. That is deliberate: it makes
+each test fail on exactly the claim under test, instead of collapsing every
+case into "bad signature" and proving far less. It is honest for a POC whose
+issuer is a stub we own end to end.
+
+It does not survive the move to production, and nobody should try to make it.
+In the MVP the issuer is Microsoft Entra ID: the private key lives in Entra,
+nothing in this repository can sign a token, and there is no PEM on disk to
+read. A test that needs one is a test asking for a private key that must not
+exist. When that swap happens, this file splits in two:
+
+  * The claim-level cases (exp, aud, iss, missing claims, alg:none, the HS256
+    algorithm-confusion attack) become UNIT tests of `verify_token` against a
+    fixture JWKS and locally generated throwaway keys — no live services, no
+    real issuer, nothing borrowed from the identity provider.
+  * Only the cases that need no signing key stay as live integration tests:
+    no token, malformed Authorization header, and the tampered/foreign
+    signature.
+
+POC-honest now, different mechanics later. Do not port the PEM-reading trick.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import subprocess
+import time
+from collections.abc import Callable
+from datetime import datetime, timedelta
+from typing import Any
+
+import httpx
+import jwt
+import pytest
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+
+from conftest import (
+    AUDIENCE,
+    AUDIT_URL,
+    IDENTITY_URL,
+    ISSUER,
+    MCP_SERVERS,
+    ORCHESTRATOR_URL,
+    PERSONA_NAMES,
+    PERSONA_ROLES,
+    REPO_ROOT,
+    TOKEN_TTL_SECONDS,
+    base_claims,
+    fetch_events,
+    mcp_initialize_request,
+    mcp_session,
+    pick_id_outside,
+    post_chat,
+    post_chat_with_token,
+    raw_chat_status,
+    request_token,
+    rsa_key_from_jwks,
+    student_ids_in,
+    utcnow,
+    wait_for_event,
+    walk_keys,
+    walk_values,
+)
+
+# Refusal wording the spec fixes exactly (SPEC §4.4, §4.6). Asserted verbatim.
+DEAN_INDIVIDUAL_RECORD_REFUSAL = (
+    "Individual student records require an advisor assignment; deans receive aggregates."
+)
+NOOR_FOREIGN_SECTION = "BUS-201-A"
+FOREIGN_SECTION_REFUSAL = (
+    "Section BUS-201-A is not among your assigned sections; "
+    "cross-section views belong to the dean."
+)
+
+
+# --------------------------------------------------------------------------
+# Byte-level JWS construction. pyjwt refuses to build these on purpose — an
+# unsigned token and an RSA public key used as an HMAC secret are both attacks,
+# not valid usage — so the attack tests assemble them by hand.
+# --------------------------------------------------------------------------
+
+
+def b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def signing_input(header: dict[str, Any], claims: dict[str, Any]) -> str:
+    def encode(part: dict[str, Any]) -> str:
+        return b64url(json.dumps(part, separators=(",", ":"), sort_keys=True).encode())
+
+    return f"{encode(header)}.{encode(claims)}"
+
+
+def unsigned_token(claims: dict[str, Any], kid: str) -> str:
+    """An `alg: none` token: real claims, no signature at all."""
+    return signing_input({"alg": "none", "typ": "JWT", "kid": kid}, claims) + "."
+
+
+def hs256_token(claims: dict[str, Any], secret: bytes, kid: str) -> str:
+    """The algorithm-confusion attack: sign with HMAC-SHA256 using the server's
+    own RSA PUBLIC key as the shared secret. A verifier that trusts the header's
+    `alg` will happily accept it, because the public key is public."""
+    payload = signing_input({"alg": "HS256", "typ": "JWT", "kid": kid}, claims)
+    signature = hmac.new(secret, payload.encode("ascii"), hashlib.sha256).digest()
+    return f"{payload}.{b64url(signature)}"
+
+
+def mutate_signature(token: str) -> str:
+    """Flip the first character of the signature segment.
+
+    The first character carries real signature bits; the last one is mostly
+    base64 padding and flipping it can decode to identical bytes.
+    """
+    header, payload, signature = token.split(".")
+    flipped = "B" if signature[0] != "B" else "C"
+    return f"{header}.{payload}.{flipped}{signature[1:]}"
+
+
+def assert_unauthorized(response: httpx.Response, what: str) -> None:
+    assert response.status_code == 401, (
+        f"{what} must be rejected with 401. Got {response.status_code}: {response.text[:200]}"
+    )
+
+
+# ==========================================================================
+# Session 1 — these gate everything. Unmarked, so they run by default.
+# ==========================================================================
+
+# --------------------------------------------------------------------------
+# No credential, or a credential the gateway cannot even parse.
+# --------------------------------------------------------------------------
+
+
+def test_missing_authorization_header_is_rejected(http: httpx.Client) -> None:
+    response = post_chat(http, authorization=None)
+    assert_unauthorized(response, "a request with no Authorization header")
+
+
+@pytest.mark.parametrize(
+    "header_value",
+    [
+        pytest.param("", id="empty-header-value"),
+        pytest.param("Bearer", id="scheme-with-no-token"),
+        pytest.param("Basic ZGFuYTpkZW1v", id="non-bearer-scheme-basic"),
+        pytest.param("Token abc.def.ghi", id="non-bearer-scheme-token"),
+    ],
+)
+def test_malformed_authorization_header_is_rejected(http: httpx.Client, header_value: str) -> None:
+    response = post_chat(http, authorization=header_value)
+    assert_unauthorized(response, f"Authorization: {header_value!r}")
+
+
+@pytest.mark.parametrize(
+    "header_value",
+    [
+        pytest.param("Bearer ", id="scheme-with-trailing-space"),
+        pytest.param("Bearer\t", id="scheme-with-trailing-tab"),
+        pytest.param("bearer   ", id="lowercase-scheme-trailing-spaces"),
+    ],
+)
+def test_authorization_header_with_trailing_whitespace_is_rejected(header_value: str) -> None:
+    """A credential that is nothing but whitespace once the scheme is stripped.
+
+    These go over a raw socket because RFC 9110 forbids trailing whitespace in a
+    field value, so httpx refuses to put them on the wire (LocalProtocolError).
+    An attacker writing bytes to a socket has no such scruples, so the guarantee
+    is worth asserting rather than dropping.
+
+    What this proves is the end-to-end behavior, which is the right level for an
+    integration test. It does not reach the application's own `.strip()`: h11
+    normalizes optional whitespace out of a field value, so all three variants
+    arrive at `bearer_claims` as bare `Bearer`/`bearer` — the same code path as
+    the `scheme-with-no-token` case above. The stack as a whole answers 401,
+    which is the promise being kept.
+
+    This is the only place in the suite that bypasses httpx, and it does so to
+    make the test stricter, never to make one pass.
+    """
+    status = raw_chat_status(header_value)
+    assert status == 401, (
+        f"Authorization: {header_value!r} must be rejected with 401, got {status}"
+    )
+
+
+def test_valid_token_without_the_bearer_prefix_is_rejected(
+    http: httpx.Client, dana_token: str
+) -> None:
+    """A perfectly good token is still not a credential if it arrives bare."""
+    response = post_chat(http, authorization=dana_token)
+    assert_unauthorized(response, "a raw token sent with no 'Bearer ' prefix")
+
+
+# --------------------------------------------------------------------------
+# Signature. The token is well formed; the maths must not add up.
+# --------------------------------------------------------------------------
+
+
+def test_token_signed_by_a_foreign_key_is_rejected(
+    http: httpx.Client, mint: Callable[..., str], foreign_private_key: RSAPrivateKey
+) -> None:
+    """Correct claims, correct `kid`, signed by a key the harness never saw.
+
+    The kid is the real one on purpose: the server finds the right public key,
+    and the only thing that fails is the signature.
+    """
+    token = mint(key=foreign_private_key)
+    response = post_chat_with_token(http, token)
+    assert_unauthorized(response, "a token signed by a key the harness does not trust")
+
+
+def test_token_with_a_mutated_signature_is_rejected(http: httpx.Client, dana_token: str) -> None:
+    tampered = mutate_signature(dana_token)
+    assert tampered != dana_token, "the tamper helper did not change the token"
+    response = post_chat_with_token(http, tampered)
+    assert_unauthorized(response, "a real token with one byte flipped in its signature")
+
+
+def test_unsigned_alg_none_token_is_rejected(
+    http: httpx.Client, signing_kid: str
+) -> None:
+    token = unsigned_token(base_claims("dana"), signing_kid)
+    response = post_chat_with_token(http, token)
+    assert_unauthorized(response, "an unsigned token claiming alg:none")
+
+
+def test_hs256_token_signed_with_the_public_key_is_rejected(
+    http: httpx.Client, public_key_pem: bytes, signing_kid: str
+) -> None:
+    """Algorithm confusion: if the verifier honours the header's `alg` instead
+    of pinning RS256, anyone holding the published public key can mint tokens."""
+    token = hs256_token(base_claims("dana"), public_key_pem, signing_kid)
+    response = post_chat_with_token(http, token)
+    assert_unauthorized(
+        response,
+        "an HS256 token whose HMAC secret is the server's own public key "
+        "(the verifier must pin RS256, not trust the header's alg)",
+    )
+
+
+# --------------------------------------------------------------------------
+# Claims. Correctly signed, and still wrong.
+# --------------------------------------------------------------------------
+
+
+def test_expired_token_is_rejected(http: httpx.Client, mint: Callable[..., str]) -> None:
+    issued = int(time.time()) - TOKEN_TTL_SECONDS - 3600
+    token = mint(claims={"iat": issued, "exp": issued + TOKEN_TTL_SECONDS})
+    response = post_chat_with_token(http, token)
+    assert_unauthorized(response, "a correctly signed token whose exp is an hour in the past")
+
+
+def test_token_for_a_different_audience_is_rejected(
+    http: httpx.Client, mint: Callable[..., str]
+) -> None:
+    token = mint(claims={"aud": "some-other-api"})
+    response = post_chat_with_token(http, token)
+    assert_unauthorized(response, f"a token with aud='some-other-api' instead of {AUDIENCE!r}")
+
+
+def test_token_from_a_different_issuer_is_rejected(
+    http: httpx.Client, mint: Callable[..., str]
+) -> None:
+    token = mint(claims={"iss": "http://evil-idp.example.com"})
+    response = post_chat_with_token(http, token)
+    assert_unauthorized(response, f"a token with iss='http://evil-idp.example.com' instead of {ISSUER!r}")
+
+
+@pytest.mark.parametrize("claim", ["exp", "sub"])
+def test_token_missing_a_required_claim_is_rejected(
+    http: httpx.Client, mint: Callable[..., str], claim: str
+) -> None:
+    """A token with no `exp` never expires; a token with no `sub` names nobody.
+    Both must be refused rather than treated as unconstrained."""
+    token = mint(drop=[claim])
+    response = post_chat_with_token(http, token)
+    assert_unauthorized(response, f"a correctly signed token with no {claim!r} claim")
+
+
+def test_gateway_401_does_not_echo_the_token(http: httpx.Client, mint: Callable[..., str]) -> None:
+    issued = int(time.time()) - TOKEN_TTL_SECONDS - 3600
+    token = mint(claims={"iat": issued, "exp": issued + TOKEN_TTL_SECONDS})
+    response = post_chat_with_token(http, token)
+    assert_unauthorized(response, "an expired token")
+    assert token not in response.text, "the 401 body repeated the rejected token back to the caller"
+    assert "eyJ" not in response.text, f"the 401 body contains a JWT-shaped string: {response.text[:200]}"
+
+
+# --------------------------------------------------------------------------
+# The positive control. Without this, every test above could pass on a
+# gateway that simply 401s everything.
+# --------------------------------------------------------------------------
+
+
+def test_valid_token_reaches_the_gateway(http: httpx.Client, dana_token: str) -> None:
+    message = "negative-auth suite positive control"
+    response = post_chat_with_token(http, dana_token, message)
+    assert response.status_code == 200, (
+        f"dana's freshly minted token must be accepted. Got {response.status_code}: "
+        f"{response.text[:200]}"
+    )
+    body = response.json()
+    assert isinstance(body.get("reply"), str) and body["reply"], f"no reply in {body!r}"
+    assert message in body["reply"], (
+        f"the Session 1 gateway echoes: the reply must contain the message sent. Got {body['reply']!r}"
+    )
+    assert body.get("tools_used") == [], (
+        f"the Session 1 gateway calls no tools; tools_used must be []. Got {body.get('tools_used')!r}"
+    )
+
+
+# --------------------------------------------------------------------------
+# identity-stub (SPEC §4.1).
+# --------------------------------------------------------------------------
+
+
+def test_wrong_password_gets_no_token(http: httpx.Client) -> None:
+    response = request_token(http, "dana", password="not-the-password")
+    assert_unauthorized(response, "a token request for dana with the wrong password")
+    assert "access_token" not in response.text
+
+
+@pytest.mark.parametrize(
+    "password",
+    [
+        pytest.param("dëmo", id="latin-1-accent"),
+        pytest.param("demo’", id="smart-quote"),
+        pytest.param("\U0001f512", id="emoji"),
+    ],
+)
+def test_non_ascii_password_is_rejected_not_crashed(http: httpx.Client, password: str) -> None:
+    """A wrong password must be a 401, whatever bytes it is made of.
+
+    hmac.compare_digest raises TypeError on a str holding non-ASCII, so
+    comparing str to str turns a wrong password into an unhandled 500 on an
+    unauthenticated endpoint.
+    """
+    response = request_token(http, "dana", password=password)
+    assert response.status_code == 401, (
+        f"a non-ASCII password must be rejected with 401, not {response.status_code}: "
+        f"{response.text[:200]}"
+    )
+
+
+def test_unknown_persona_gets_no_token(http: httpx.Client) -> None:
+    response = request_token(http, "mallory")
+    assert_unauthorized(response, "a token request for a persona that does not exist")
+    assert "access_token" not in response.text
+
+
+def test_personas_endpoint_exposes_ids_and_names_and_nothing_else(http: httpx.Client) -> None:
+    response = http.get(f"{IDENTITY_URL}/personas")
+    assert response.status_code == 200, f"GET /personas returned {response.status_code}"
+    personas = response.json()
+    assert isinstance(personas, list), "GET /personas must return a JSON array"
+    assert {persona["id"] for persona in personas} == set(PERSONA_ROLES), (
+        f"GET /personas listed {[p.get('id') for p in personas]}, expected {sorted(PERSONA_ROLES)}"
+    )
+    for persona in personas:
+        assert set(persona) == {"id", "name"}, (
+            f"persona {persona.get('id')!r} exposes extra fields {sorted(set(persona) - {'id', 'name'})}; "
+            "SPEC §4.1 says ids and display names only"
+        )
+        assert persona["name"] == PERSONA_NAMES[persona["id"]]
+    body = response.text.lower()
+    assert "password" not in body, "GET /personas mentions a password field"
+    assert "demo" not in body, "GET /personas leaks the shared demo password"
+
+
+def test_jwks_publishes_one_public_rs256_key(jwks: dict[str, Any]) -> None:
+    keys = jwks["keys"]
+    assert len(keys) == 1, (
+        f"expected exactly one published key, found {len(keys)}; the bad-token tests need an "
+        "unambiguous kid"
+    )
+    key = keys[0]
+    assert key.get("kty") == "RSA", f"kty must be RSA, got {key.get('kty')!r}"
+    assert key.get("alg", "RS256") == "RS256", f"alg must be RS256, got {key.get('alg')!r}"
+    assert key.get("use", "sig") == "sig", f"use must be sig, got {key.get('use')!r}"
+    assert key.get("kid"), "the published key carries no kid"
+    private_parameters = sorted({"d", "p", "q", "dp", "dq", "qi"} & set(key))
+    assert not private_parameters, (
+        f"jwks.json is publishing PRIVATE key material: {private_parameters}"
+    )
+
+
+@pytest.mark.parametrize("persona", sorted(PERSONA_ROLES))
+def test_minted_token_verifies_against_the_published_jwks(
+    http: httpx.Client, jwks: dict[str, Any], token_for: Callable[[str], str], persona: str
+) -> None:
+    """Verify a real token the way every service must: JWKS signature, iss, aud."""
+    token = token_for(persona)
+    kid = jwt.get_unverified_header(token).get("kid")
+    assert kid, "identity-stub minted a token with no kid in the header"
+    claims = jwt.decode(
+        token,
+        key=rsa_key_from_jwks(jwks, kid),
+        algorithms=["RS256"],
+        audience=AUDIENCE,
+        issuer=ISSUER,
+        options={"require": ["exp", "iat", "iss", "aud", "sub"]},
+    )
+    assert claims["sub"] == persona
+    assert claims["name"] == PERSONA_NAMES[persona]
+    assert claims["roles"] == PERSONA_ROLES[persona], (
+        f"{persona}'s token carries roles {claims['roles']!r}, "
+        f"config/personas.yaml says {PERSONA_ROLES[persona]!r}"
+    )
+    lifetime = claims["exp"] - claims["iat"]
+    assert abs(lifetime - TOKEN_TTL_SECONDS) <= 2, (
+        f"token lifetime is {lifetime}s, SPEC §3 says {TOKEN_TTL_SECONDS}s"
+    )
+
+
+# --------------------------------------------------------------------------
+# Audit (SPEC §4.8). Every 401 leaves a row; every completed request does too.
+# --------------------------------------------------------------------------
+
+AUDIT_ROW_FIELDS = {"ts", "service", "event", "sub", "roles", "detail"}
+
+
+def test_audit_timestamps_are_iso8601_with_a_timezone(http: httpx.Client) -> None:
+    """Runs first among the audit tests on purpose.
+
+    The viewer orders rows by ts and so does this suite's polling helper. A
+    naive timestamp is ambiguous the moment anything runs in another zone, and
+    it would make every audit test below fail with the misleading complaint
+    that no row was written.
+    """
+    since = utcnow() - timedelta(seconds=2)
+    assert_unauthorized(post_chat(http, authorization=None), "a request with no Authorization header")
+    event = wait_for_event(http, lambda row: row.get("event") == "auth_failed", since=since)
+    assert event is not None, (
+        "no auth_failed row appeared after a rejected request. If the gateway does write one, "
+        "check its ts: rows timestamped outside this test's window are invisible to the poller."
+    )
+    for row in fetch_events(http, limit=25):
+        raw = row.get("ts")
+        assert isinstance(raw, str) and raw, f"audit row has no ts: {row!r}"
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00").replace("z", "+00:00"))
+        assert parsed.tzinfo is not None, (
+            f"audit ts {raw!r} carries no timezone; use datetime.now(timezone.utc).isoformat()"
+        )
+
+
+def test_gateway_auth_failure_is_audited(http: httpx.Client) -> None:
+    since = utcnow() - timedelta(seconds=2)
+    response = post_chat(http, authorization=None)
+    assert_unauthorized(response, "a request with no Authorization header")
+
+    event = wait_for_event(
+        http,
+        lambda row: row.get("service") == "gateway" and row.get("event") == "auth_failed",
+        since=since,
+    )
+    assert event is not None, (
+        "the gateway rejected the request but wrote no auth_failed audit row (SPEC §4.2)"
+    )
+    assert AUDIT_ROW_FIELDS <= set(event), (
+        f"audit row is missing fields {sorted(AUDIT_ROW_FIELDS - set(event))} (SPEC §4.8)"
+    )
+
+
+def test_successful_chat_is_audited(http: httpx.Client, dana_token: str) -> None:
+    since = utcnow() - timedelta(seconds=2)
+    response = post_chat_with_token(http, dana_token, "audit me")
+    assert response.status_code == 200, f"expected 200, got {response.status_code}"
+
+    event = wait_for_event(
+        http,
+        lambda row: (
+            row.get("service") == "gateway"
+            and row.get("event") == "request_completed"
+            and row.get("sub") == "dana"
+        ),
+        since=since,
+    )
+    assert event is not None, (
+        "a successful /chat wrote no request_completed audit row for dana (SPEC §4.2 step 5)"
+    )
+    assert event.get("roles") == PERSONA_ROLES["dana"], (
+        f"audit row recorded roles {event.get('roles')!r}, expected {PERSONA_ROLES['dana']!r}"
+    )
+
+
+SYNTHETIC_JWT = (
+    "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZha2UifQ"
+    ".eyJzdWIiOiJub2JvZHkiLCJhdWQiOiJoYXJuZXNzLXBvYyJ9"
+    ".c3ludGhldGljLXNpZ25hdHVyZS1mb3ItdGhlLXNjcnViLXRlc3Q"
+)
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        pytest.param({"authorization": f"Bearer {SYNTHETIC_JWT}"}, id="sensitive-key-at-top-level"),
+        pytest.param(
+            {"upstream": {"authorization": f"Bearer {SYNTHETIC_JWT}"}},
+            id="sensitive-key-nested-one-level",
+        ),
+        pytest.param(
+            {"context": {"request": {"headers": {"Authorization": f"Bearer {SYNTHETIC_JWT}"}}}},
+            id="sensitive-key-nested-three-deep",
+        ),
+        pytest.param(
+            {"headers": f"Authorization: Bearer {SYNTHETIC_JWT}"},
+            id="token-in-a-value-under-an-innocent-key",
+        ),
+        pytest.param({"trace": [f"Bearer {SYNTHETIC_JWT}"]}, id="token-inside-a-list"),
+        pytest.param({"note": f"raw token {SYNTHETIC_JWT}"}, id="bare-token-in-prose"),
+    ],
+)
+def test_audit_strips_credentials_from_any_shape_of_detail(
+    http: httpx.Client, detail: dict[str, Any]
+) -> None:
+    """The audit service is the backstop for a careless caller.
+
+    Checking only top-level key names catches the one mistake nobody makes.
+    A token arrives nested, inside a list, or dumped whole into a value under a
+    perfectly innocent key.
+    """
+    since = utcnow() - timedelta(seconds=2)
+    marker = f"scrub-probe-{abs(hash(json.dumps(detail, sort_keys=True))) % 10**8}"
+    posted = http.post(
+        f"{AUDIT_URL}/events",
+        json={
+            "service": "test-harness",
+            "event": "tool_call",
+            "sub": "nobody",
+            "roles": [],
+            "detail": {**detail, "probe": marker},
+        },
+    )
+    assert posted.status_code == 204, f"POST /events returned {posted.status_code}"
+
+    row = wait_for_event(
+        http,
+        lambda event: event.get("detail", {}).get("probe") == marker,
+        since=since,
+    )
+    assert row is not None, "the probe event was never stored"
+
+    stored = json.dumps(row)
+    assert SYNTHETIC_JWT not in stored, (
+        f"the token survived scrubbing and is now in the audit trail: {stored[:300]}"
+    )
+    assert "eyJ" not in stored, f"a JWT-shaped string survived scrubbing: {stored[:300]}"
+    for value in walk_values(row):
+        assert "bearer " not in value.lower(), (
+            f"an Authorization header survived scrubbing: {value[:120]!r}"
+        )
+
+
+def test_audit_keeps_legitimate_fields_whose_names_merely_contain_token(
+    http: httpx.Client,
+) -> None:
+    """Redaction must not silently eat real data.
+
+    Session 2 records model usage. If the marker list matches substrings,
+    prompt_tokens and completion_tokens vanish while the row claims a
+    redaction happened — worse than either keeping or dropping them honestly.
+    """
+    since = utcnow() - timedelta(seconds=2)
+    marker = "usage-probe"
+    posted = http.post(
+        f"{AUDIT_URL}/events",
+        json={
+            "service": "test-harness",
+            "event": "answer_returned",
+            "sub": "nobody",
+            "roles": [],
+            "detail": {"probe": marker, "prompt_tokens": 812, "completion_tokens": 140},
+        },
+    )
+    assert posted.status_code == 204
+
+    row = wait_for_event(
+        http, lambda event: event.get("detail", {}).get("probe") == marker, since=since
+    )
+    assert row is not None, "the usage probe was never stored"
+    detail = row["detail"]
+    assert detail.get("prompt_tokens") == 812 and detail.get("completion_tokens") == 140, (
+        f"token-count fields were dropped as if they were credentials: {detail!r}"
+    )
+    assert "redacted_fields" not in detail, (
+        f"nothing sensitive was sent, but the row claims a redaction: {detail!r}"
+    )
+
+
+FORBIDDEN_AUDIT_KEYS = {"authorization", "password", "access_token", "token", "bearer", "jwt"}
+
+
+def test_audit_never_records_tokens_or_credentials(
+    http: httpx.Client, dana_token: str, mint: Callable[..., str]
+) -> None:
+    """Duty 4: tokens must never reach a log or an audit detail field.
+
+    Generate traffic in both directions first — one accepted request carrying a
+    real token, one rejected request carrying a well-formed expired one — so the
+    scan runs against rows that were written while tokens were in hand.
+    """
+    since = utcnow() - timedelta(seconds=2)
+    accepted = post_chat_with_token(http, dana_token, "hygiene check")
+    assert accepted.status_code == 200, f"expected 200, got {accepted.status_code}"
+
+    issued = int(time.time()) - TOKEN_TTL_SECONDS - 3600
+    expired = mint(claims={"iat": issued, "exp": issued + TOKEN_TTL_SECONDS})
+    assert_unauthorized(post_chat_with_token(http, expired), "an expired token")
+
+    completed = wait_for_event(
+        http,
+        lambda row: row.get("event") == "request_completed" and row.get("sub") == "dana",
+        since=since,
+    )
+    failed = wait_for_event(
+        http,
+        lambda row: row.get("event") == "auth_failed",
+        since=since,
+    )
+    assert completed is not None and failed is not None, (
+        "expected both a request_completed and an auth_failed row before scanning for leaks"
+    )
+
+    events = fetch_events(http, limit=200)
+    serialized = json.dumps(events)
+    assert "eyJ" not in serialized, (
+        "a JWT-shaped string (eyJ...) appears in GET /events — a token reached the audit trail"
+    )
+    assert dana_token not in serialized, "dana's live token appears verbatim in the audit trail"
+    assert expired not in serialized, "the rejected token appears verbatim in the audit trail"
+
+    for key in walk_keys(events):
+        assert key.lower() not in FORBIDDEN_AUDIT_KEYS, (
+            f"audit rows carry a field named {key!r}; credentials must never be recorded"
+        )
+    for value in walk_values(events):
+        assert "bearer " not in value.lower(), (
+            f"an audit value contains an Authorization header: {value[:120]!r}"
+        )
+
+
+# --------------------------------------------------------------------------
+# Auditing must never change the outcome of a request (SPEC §2).
+#
+# Disruptive: this stops and restarts the audit container. It is deliberately
+# the LAST Session 1 test, so no test that needs audit rows runs during the
+# outage — events emitted while audit is down are lost, by design.
+# --------------------------------------------------------------------------
+
+
+def _compose(*args: str) -> None:
+    result = subprocess.run(
+        ["docker", "compose", *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"`docker compose {' '.join(args)}` failed ({result.returncode}): "
+        f"{result.stderr.strip()[:300]}"
+    )
+
+
+def _wait_for_audit(client: httpx.Client, timeout: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if client.get(f"{AUDIT_URL}/healthz", timeout=2.0).status_code == 200:
+                return
+        except httpx.HTTPError:
+            pass
+        time.sleep(0.5)
+    pytest.fail(
+        f"audit did not come back within {timeout}s. The suite left it stopped — "
+        "run `docker compose up -d audit` before rerunning.",
+        pytrace=False,
+    )
+
+
+@pytest.mark.disruptive
+def test_authentication_survives_the_audit_service_being_down(
+    http: httpx.Client, dana_token: str
+) -> None:
+    """A dead audit service must not change what the gateway answers.
+
+    `bearer_claims` audits the auth failure *before* raising its 401, so if
+    audit_event ever went back to awaiting the POST, this path would inherit
+    the audit service's availability and its latency. That is the failure this
+    guards: an audit trail that can take authentication down is a liability,
+    not a control.
+
+    Note what the timing assertion does and does not prove. A stopped container
+    means connection-refused or a DNS miss, both of which fail fast, so this
+    does not simulate a *hung* audit service. It is a regression guard: if the
+    fire-and-forget scheduling were reverted to an awaited POST, a black-holed
+    audit service would stall this path for TIMEOUT_SECONDS, and the margin
+    below is well inside that.
+    """
+    _compose("stop", "audit")
+    try:
+        started = time.monotonic()
+        rejected = post_chat(http, authorization=None)
+        elapsed = time.monotonic() - started
+
+        assert rejected.status_code == 401, (
+            "with audit down, an unauthenticated request must still be a clean 401, "
+            f"not {rejected.status_code}: {rejected.text[:200]}"
+        )
+        assert elapsed < 1.0, (
+            f"the 401 took {elapsed:.2f}s with audit down; authentication must not "
+            "wait on the audit service (SPEC §2 — audit_event never blocks)"
+        )
+
+        # The accepted path must be unaffected too: auditing changes no outcome.
+        accepted = post_chat_with_token(http, dana_token, "audit is down")
+        assert accepted.status_code == 200, (
+            "with audit down, a valid token must still be accepted, got "
+            f"{accepted.status_code}: {accepted.text[:200]}"
+        )
+    finally:
+        # Always restore, even on assertion failure — every later test that
+        # reads audit rows depends on this.
+        _compose("start", "audit")
+        _wait_for_audit(http)
+
+
+# ==========================================================================
+# Session 2 — written ahead of the code, deselected by default.
+# Run with: uv run pytest tests/ -m session2
+# ==========================================================================
+
+@pytest.mark.session2
+def test_orchestrator_rejects_a_request_with_no_token(
+    http: httpx.Client, session2_stack: None
+) -> None:
+    """The bypass demo (SPEC §7 step 4) curls this service directly. It has to
+    validate for itself; nothing upstream vouched for the caller."""
+    response = post_chat(http, authorization=None, base_url=ORCHESTRATOR_URL)
+    assert_unauthorized(response, "an unauthenticated POST straight to the orchestrator")
+
+
+@pytest.mark.session2
+@pytest.mark.parametrize("server", sorted(MCP_SERVERS))
+def test_mcp_server_rejects_a_request_with_no_token(
+    http: httpx.Client, session2_stack: None, server: str
+) -> None:
+    response = mcp_initialize_request(http, MCP_SERVERS[server], token=None)
+    assert_unauthorized(response, f"an unauthenticated MCP initialize against {server}")
+
+
+@pytest.mark.session2
+def test_orchestrator_rejects_an_expired_token(
+    http: httpx.Client, session2_stack: None, mint: Callable[..., str]
+) -> None:
+    issued = int(time.time()) - TOKEN_TTL_SECONDS - 3600
+    token = mint(claims={"iat": issued, "exp": issued + TOKEN_TTL_SECONDS})
+    response = post_chat_with_token(http, token, base_url=ORCHESTRATOR_URL)
+    assert_unauthorized(response, "an expired token at the orchestrator")
+
+
+@pytest.mark.session2
+@pytest.mark.parametrize("server", sorted(MCP_SERVERS))
+def test_mcp_server_rejects_an_expired_token(
+    http: httpx.Client, session2_stack: None, mint: Callable[..., str], server: str
+) -> None:
+    """Each MCP server checks `exp` itself. Six services, six independent
+    verifications (SPEC §6) — no server trusts the hop before it."""
+    issued = int(time.time()) - TOKEN_TTL_SECONDS - 3600
+    token = mint(claims={"iat": issued, "exp": issued + TOKEN_TTL_SECONDS})
+    response = mcp_initialize_request(http, MCP_SERVERS[server], token=token)
+    assert_unauthorized(response, f"an expired token at {server}")
+
+
+@pytest.fixture(scope="session")
+def dana_advisee_ids(session2_stack: None, token_for: Callable[[str], str]) -> list[str]:
+    with mcp_session(MCP_SERVERS["mcp-colleague"], token_for("dana")) as session:
+        result = session.call_tool("get_my_advisees", {})
+    assert not result.refused, f"dana holds the advisor role and must be served: {result.text[:300]}"
+    ids = student_ids_in(result.text)
+    assert len(ids) >= 2, (
+        f"expected dana to have a block of advisees, found {ids}; check scripts/seed.py"
+    )
+    return ids
+
+
+@pytest.mark.session2
+def test_adjunct_is_refused_the_advisee_roster(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """The money shot: pat's token is valid, pat reaches the tool server
+    directly, and the tool server still says no (SPEC §7 step 4)."""
+    with mcp_session(MCP_SERVERS["mcp-colleague"], token_for("pat")) as session:
+        result = session.call_tool("get_my_advisees", {})
+    assert result.refused, (
+        f"pat holds only the adjunct role and must be refused get_my_advisees. Got: {result.text[:300]}"
+    )
+    assert "advisor" in result.text.lower(), (
+        f"the refusal must name the advisor role so the model can relay it. Got: {result.text[:300]}"
+    )
+
+
+@pytest.mark.session2
+def test_advisor_is_refused_another_advisors_student(
+    session2_stack: None, token_for: Callable[[str], str], dana_advisee_ids: list[str]
+) -> None:
+    other_students_id = pick_id_outside(dana_advisee_ids)
+    with mcp_session(MCP_SERVERS["mcp-colleague"], token_for("dana")) as session:
+        result = session.call_tool("get_student_summary", {"student_id": other_students_id})
+    assert result.refused, (
+        f"{other_students_id} is not one of dana's advisees and must be refused. "
+        f"Got: {result.text[:300]}"
+    )
+    assert other_students_id in result.text, (
+        f"the refusal must name the student asked about ({other_students_id}). Got: {result.text[:300]}"
+    )
+    assert "not among your assigned advisees" in result.text, (
+        f"the refusal must name the boundary, not just deny. Got: {result.text[:300]}"
+    )
+
+
+@pytest.mark.session2
+def test_dean_asking_for_an_individual_record_gets_the_aggregates_line(
+    session2_stack: None, token_for: Callable[[str], str], dana_advisee_ids: list[str]
+) -> None:
+    """SPEC §4.4 fixes this sentence word for word — it is the RBAC demo."""
+    student_id = dana_advisee_ids[0]
+    with mcp_session(MCP_SERVERS["mcp-colleague"], token_for("kim")) as session:
+        result = session.call_tool("get_student_summary", {"student_id": student_id})
+    assert result.refused, (
+        f"kim is a dean and must be refused an individual record. Got: {result.text[:300]}"
+    )
+    assert DEAN_INDIVIDUAL_RECORD_REFUSAL in result.text, (
+        "the dean refusal must read exactly:\n"
+        f"  {DEAN_INDIVIDUAL_RECORD_REFUSAL}\n"
+        f"got:\n  {result.text[:300]}"
+    )
+
+
+@pytest.mark.session2
+def test_faculty_is_refused_a_section_they_do_not_teach(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """noor teaches CYB-310-A and BUS-201-B. BUS-201-A belongs to someone else.
+    SPEC §4.6 fixes this sentence word for word."""
+    with mcp_session(MCP_SERVERS["mcp-canvas"], token_for("noor")) as session:
+        result = session.call_tool("get_section_engagement", {"section_id": NOOR_FOREIGN_SECTION})
+    assert result.refused, (
+        f"{NOOR_FOREIGN_SECTION} is not noor's section and must be refused. Got: {result.text[:300]}"
+    )
+    assert FOREIGN_SECTION_REFUSAL in result.text, (
+        "the cross-section refusal must read exactly:\n"
+        f"  {FOREIGN_SECTION_REFUSAL}\n"
+        f"got:\n  {result.text[:300]}"
+    )
+
+
+@pytest.mark.session2
+def test_dean_may_read_the_same_section_the_faculty_member_could_not(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """The asymmetry, proven at the tool layer: same call, same server, same
+    second — the answer depends only on the role in the caller's own token."""
+    with mcp_session(MCP_SERVERS["mcp-canvas"], token_for("kim")) as session:
+        result = session.call_tool("get_section_engagement", {"section_id": NOOR_FOREIGN_SECTION})
+    assert not result.refused, (
+        f"kim is a dean and may read any section, including {NOOR_FOREIGN_SECTION}. "
+        f"Got: {result.text[:300]}"
+    )
+    assert result.text.strip(), f"the dean's section view came back empty: {result.raw!r}"

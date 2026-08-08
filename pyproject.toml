@@ -1,0 +1,30 @@
+[project]
+name = "harness-poc"
+version = "0.1.0"
+description = "POC of a university AI harness — test workspace and scripts"
+# Pinned, not ">=3.12": SPEC §1 says Python 3.12 everywhere, and the services
+# run 3.12 in their containers. Without the pin, `uv run pytest` on this host
+# builds the test venv against whatever newer interpreter it finds.
+requires-python = "==3.12.*"
+dependencies = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+    "pyjwt[crypto]>=2.10",
+    "cryptography>=44.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Session-2 tests are written ahead of the code they cover (the auth-reviewer's
+# brief: every auth behavior gets its negative test before the passing code
+# exists). They are deselected by default so `uv run pytest tests/ -x -q` is a
+# truthful green at the Session 1 exit. Run them with `-m session2` once the
+# orchestrator and MCP servers exist.
+addopts = "-m 'not session2'"
+markers = [
+    "session2: covers services that arrive in Session 2 (orchestrator, mcp-*)",
+    "disruptive: stops and restarts a container mid-suite; always restores it",
+]

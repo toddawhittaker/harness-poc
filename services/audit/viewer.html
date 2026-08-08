@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness Audit</title>
+<style>
+  :root {
+    --bg: #12151c; --panel: #1a1f2a; --line: #2c3444;
+    --text: #e6e9f0; --dim: #8b95a8;
+    --ok: #4ade80; --refused: #fbbf24; --failed: #f87171;
+    /* The single source of truth for the title band's height. The scroll
+       container subtracts exactly this, so there is no gap and no overlap. */
+    --title-h: 64px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 17px; line-height: 1.45;
+    overflow: hidden;             /* the table container does the scrolling */
+  }
+
+  /* Static. Not sticky, not fixed — it simply sits above the scroll area. */
+  header {
+    display: flex; align-items: center; gap: 1.5rem;
+    height: var(--title-h); padding: 0 1.25rem;
+    background: var(--panel); border-bottom: 2px solid var(--line);
+  }
+  h1 { margin: 0; font-size: 1.4rem; letter-spacing: 0.02em; white-space: nowrap; }
+  #count { color: var(--dim); font-size: 0.95rem; white-space: nowrap; }
+  .legend { display: flex; gap: 1.25rem; margin-left: auto; font-size: 0.95rem; }
+  .legend span { white-space: nowrap; }
+  .legend span::before { content: "\25CF"; margin-right: 0.4rem; }
+  .legend .ok::before { color: var(--ok); }
+  .legend .refused::before { color: var(--refused); }
+  .legend .failed::before { color: var(--failed); }
+  @media (max-width: 700px) { .legend { display: none; } }
+
+  /* The only scrolling element on the page. */
+  .table-wrap {
+    height: calc(100vh - var(--title-h));
+    overflow-y: auto;
+    overflow-x: auto;
+  }
+
+  /* separate, not collapse: with border-collapse a sticky th loses its
+     borders and rows show through the seam. */
+  table { width: 100%; border-collapse: separate; border-spacing: 0; }
+
+  thead th {
+    position: sticky; top: 0; z-index: 2;
+    text-align: left; padding: 0.6rem 1rem;
+    background: var(--panel);     /* fully opaque: rows pass behind, not through */
+    color: var(--dim); font-weight: 600; text-transform: uppercase;
+    font-size: 0.82rem; letter-spacing: 0.08em;
+    border-bottom: 2px solid var(--line);
+  }
+  td { padding: 0.55rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr.ok td.event { color: var(--ok); }
+  tbody tr.refused td.event { color: var(--refused); }
+  tbody tr.failed td.event { color: var(--failed); }
+  tbody tr.refused { background: rgba(251, 191, 36, 0.07); }
+  tbody tr.failed { background: rgba(248, 113, 113, 0.09); }
+  td.event { font-weight: 700; white-space: nowrap; }
+  td.ts, td.service, td.sub, td.roles { white-space: nowrap; color: var(--dim); }
+  td.sub { color: var(--text); font-weight: 600; }
+  td.detail { color: var(--dim); word-break: break-word; }
+  td.empty { padding: 3rem 1.25rem; color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Harness Audit</h1>
+  <span id="count">connecting&hellip;</span>
+  <div class="legend">
+    <span class="ok">ok</span>
+    <span class="refused">refused</span>
+    <span class="failed">auth failed</span>
+  </div>
+</header>
+<div class="table-wrap" id="scroller">
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th><th>Service</th><th>Event</th><th>Who</th><th>Roles</th><th>Detail</th>
+      </tr>
+    </thead>
+    <tbody id="rows"><tr><td colspan="6" class="empty">Waiting for events&hellip;</td></tr></tbody>
+  </table>
+</div>
+<script>
+  const FAILED = ["auth_failed"];
+  const REFUSED = ["refused_at_gate", "router_parse_failed"];
+
+  const scroller = document.getElementById("scroller");
+  const tbody = document.getElementById("rows");
+  const counter = document.getElementById("count");
+
+  function rowClass(ev) {
+    if (FAILED.includes(ev.event)) return "failed";
+    if (REFUSED.includes(ev.event)) return "refused";
+    if (ev.detail && ev.detail.decision === "refused") return "refused";
+    return "ok";
+  }
+
+  function clock(ts) {
+    const t = new Date(ts);
+    return isNaN(t) ? ts : t.toLocaleTimeString([], { hour12: false });
+  }
+
+  function describe(detail) {
+    if (!detail || Object.keys(detail).length === 0) return "";
+    return Object.entries(detail)
+      .map(([k, v]) => k + "=" + (typeof v === "object" ? JSON.stringify(v) : v))
+      .join("  ");
+  }
+
+  // textContent, never innerHTML: audit detail is data, and this page goes on a
+  // projector. Nothing in a detail field may become markup.
+  const cell = (text, cls) => {
+    const td = document.createElement("td");
+    td.className = cls;
+    td.textContent = text;
+    return td;
+  };
+
+  function buildRows(events) {
+    const fragment = document.createDocumentFragment();
+    if (events.length === 0) {
+      const tr = document.createElement("tr");
+      const td = cell("No events yet.", "empty");
+      td.colSpan = 6;
+      tr.appendChild(td);
+      fragment.appendChild(tr);
+      return fragment;
+    }
+    for (const ev of events) {
+      const tr = document.createElement("tr");
+      tr.className = rowClass(ev);
+      tr.appendChild(cell(clock(ev.ts), "ts"));
+      tr.appendChild(cell(ev.service, "service"));
+      tr.appendChild(cell(ev.event, "event"));
+      tr.appendChild(cell(ev.sub || "—", "sub"));
+      tr.appendChild(cell((ev.roles || []).join(", ") || "—", "roles"));
+      tr.appendChild(cell(describe(ev.detail), "detail"));
+      fragment.appendChild(tr);
+    }
+    return fragment;
+  }
+
+  async function poll() {
+    let events;
+    try {
+      const res = await fetch("/events?limit=100");
+      events = await res.json();
+    } catch (err) {
+      counter.textContent = "audit unreachable";
+      return;
+    }
+
+    // Replace only the tbody, and put the scroll position back. Re-rendering
+    // the whole table would rebuild thead and jump the view on every tick.
+    const { scrollTop, scrollLeft } = scroller;
+    tbody.replaceChildren(buildRows(events));
+    scroller.scrollTop = scrollTop;
+    scroller.scrollLeft = scrollLeft;
+
+    counter.textContent = events.length + " events — newest first";
+  }
+
+  poll();
+  setInterval(poll, 2000);
+</script>
+</body>
+</html>

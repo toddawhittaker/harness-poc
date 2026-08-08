@@ -1,0 +1,78 @@
+# harness-poc — Session 1: identity-stub, gateway (echo mode), audit.
+# Session 2 adds orchestrator and the four mcp-* servers; Session 3 adds the
+# two Chainlit apps and the cloudflared tunnel profile.
+#
+# Every service builds from the repo root so the libs/harness_auth path
+# dependency resolves. ./data is a bind mount, not a named volume: scripts/seed.py
+# runs on the host and writes the same files the services read, and the JWT
+# keypair persists there across restarts.
+
+services:
+  identity-stub:
+    build:
+      context: .
+      dockerfile: services/identity-stub/Dockerfile
+    # Run as the host user so the JWT keypair and the SQLite files it writes into
+    # the bind-mounted ./data are owned by you, not by root. tests/ reads
+    # data/jwt_private.pem from the host to forge the negative-auth tokens.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    ports: ["127.0.0.1:8001:8001"]
+    environment:
+      JWT_ISSUER: http://identity-stub:8001
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-harness-poc}
+      PERSONAS_PATH: /config/personas.yaml
+      KEY_DIR: /data
+    volumes:
+      - ./services/identity-stub:/app/services/identity-stub
+      - ./config:/config:ro
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8001/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    ports: ["127.0.0.1:8000:8000"]
+    environment:
+      HARNESS_SERVICE_NAME: gateway
+      HARNESS_JWT_ISSUER: http://identity-stub:8001
+      HARNESS_JWT_AUDIENCE: ${JWT_AUDIENCE:-harness-poc}
+      HARNESS_JWKS_URL: http://identity-stub:8001/jwks.json
+      HARNESS_AUDIT_URL: http://audit:8030/events
+    volumes:
+      - ./services/gateway:/app/services/gateway
+      - ./libs:/app/libs
+    depends_on:
+      identity-stub:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  audit:
+    build:
+      context: .
+      dockerfile: services/audit/Dockerfile
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    ports: ["127.0.0.1:8030:8030"]
+    environment:
+      AUDIT_DB_PATH: /data/audit.db
+    volumes:
+      - ./services/audit:/app/services/audit
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8030/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s

@@ -1,0 +1,17 @@
+# Role -> allowed tools. The orchestrator filters MCP toolsets against this
+# before the agent ever sees them: a tool a role cannot use is never visible
+# to the model (SPEC §4.3).
+#
+# This is registry filtering, not enforcement. Enforcement lives in the MCP
+# servers, which re-check every call against the caller's own token.
+#
+# Read by the orchestrator in Session 2. Nothing loads it yet.
+roles:
+  advisor: [get_my_advisees, get_student_summary, get_student_degree_progress, get_next_term_options,
+            get_program_curriculum, list_occupations, get_occupation, get_program_occupation_map]
+  faculty: [get_my_sections, get_section_engagement, get_program_curriculum, get_course_outcomes,
+            list_occupations, get_occupation]
+  dean:    [get_program_summaries, get_enrollment_trends, get_section_engagement, get_program_engagement_rollup,
+            get_program_curriculum, get_course_outcomes, list_programs_catalog,
+            list_occupations, get_occupation, get_program_occupation_map]
+  adjunct: [list_occupations, get_occupation]   # public data only — makes the contrast visible

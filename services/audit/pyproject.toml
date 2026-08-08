@@ -1,0 +1,15 @@
+[project]
+name = "audit"
+version = "0.1.0"
+description = "The receipts — append-only event log and projector viewer (SPEC §4.8)"
+requires-python = "==3.12.*"
+# No harness_auth dependency: audit accepts events from services and serves the
+# viewer. SPEC §6's list of services that must 401 without a token names six —
+# gateway, orchestrator, and the four MCP servers — and audit is not among them.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+]
+
+[tool.uv]
+package = false

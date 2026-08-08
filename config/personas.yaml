@@ -1,0 +1,9 @@
+# Demo identities. Fake people, real RS256 tokens.
+# Any persona can sign into either UI — access follows the token's roles,
+# not the app (SPEC §4.9).
+personas:
+  dana:  { name: "Dana Whitfield", password: "demo", roles: [advisor] }
+  kim:   { name: "Kim Okafor",     password: "demo", roles: [dean] }
+  noor:  { name: "Noor Haddad",    password: "demo", roles: [faculty] }   # teaches two sections
+  pat:   { name: "Pat Reyes",      password: "demo", roles: [adjunct] }   # no data roles
+  sam:   { name: "Sam Lindqvist",  password: "demo", roles: [advisor, dean] }  # in reserve for Q&A
