@@ -9,6 +9,9 @@ covered by SPEC.md, and decide in its spirit; for the POC, SPEC.md always wins.
 - seed:    uv run scripts/seed.py
 - tests:   uv run pytest tests/ -x -q   (stack must be running)
 - one svc: docker compose up gateway --build
+- pre-demo: docker compose logs audit gateway | tail -20
+            Expect NO "audit event ... dropped" lines. One means the audit page
+            will be empty during demo moment 9; the line names the bad URL.
 
 ## Hard rules
 - Never weaken, mock, or bypass JWT validation — not in dev mode, not in tests,

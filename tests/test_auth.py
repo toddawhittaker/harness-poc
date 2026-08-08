@@ -674,6 +674,31 @@ def _compose(*args: str) -> None:
     )
 
 
+def _compose_logs(*services: str, since: str = "60s") -> str:
+    result = subprocess.run(
+        ["docker", "compose", "logs", "--since", since, *services],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return result.stdout + result.stderr
+
+
+def _wait_for_log(needle: str, *services: str, timeout: float = 10.0) -> str | None:
+    """Poll container logs for `needle`. The audit POST is a background task,
+    so the line lands shortly after the response, not before it."""
+    deadline = time.monotonic() + timeout
+    while True:
+        logs = _compose_logs(*services)
+        for line in logs.splitlines():
+            if needle in line:
+                return line
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.5)
+
+
 def _wait_for_audit(client: httpx.Client, timeout: float = 30.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -729,6 +754,24 @@ def test_authentication_survives_the_audit_service_being_down(
         assert accepted.status_code == 200, (
             "with audit down, a valid token must still be accepted, got "
             f"{accepted.status_code}: {accepted.text[:200]}"
+        )
+
+        # A dropped event must leave a breadcrumb. Demo moment 9 is the audit
+        # page; if it is ever empty because the URL is wrong or the container
+        # died, this line is the difference between a ten-second fix during
+        # setup and debugging live in front of the room.
+        line = _wait_for_log("audit event", "gateway")
+        assert line is not None, (
+            "audit was down and events were dropped, but the gateway logged nothing. "
+            "An empty audit page must never be a silent failure — see harness_auth.audit."
+        )
+        assert "dropped" in line, f"unexpected audit log line: {line!r}"
+        assert "auth_failed" in line or "request_completed" in line, (
+            f"the log line does not name the dropped event: {line!r}"
+        )
+        # The breadcrumb must not become the leak the audit service prevents.
+        assert "reason" not in line and "Bearer" not in line and "eyJ" not in line, (
+            f"the dropped-event log line leaked the detail payload: {line!r}"
         )
     finally:
         # Always restore, even on assertion failure — every later test that
