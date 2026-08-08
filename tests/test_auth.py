@@ -32,10 +32,13 @@ POC-honest now, different mechanics later. Do not port the PEM-reading trick.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
+import importlib.util
 import json
+import logging
 import subprocess
 import time
 from collections.abc import Callable
@@ -652,6 +655,122 @@ def test_audit_never_records_tokens_or_credentials(
 
 
 # --------------------------------------------------------------------------
+# The dropped-event breadcrumb (SPEC §2). Tested in-process — no containers.
+# --------------------------------------------------------------------------
+
+AUDIT_MODULE_PATH = REPO_ROOT / "libs" / "harness_auth" / "src" / "harness_auth" / "audit.py"
+
+# Planted in both the detail payload and the URL's query string. Neither may
+# reach the log line.
+LEAK_MARKER = "MUST-NOT-BE-LOGGED"
+
+
+@pytest.fixture
+def audit_module() -> Any:
+    """harness_auth.audit, loaded straight from the file.
+
+    Importing the package would pull harness_auth.jwt and with it fastapi and
+    pydantic, which this workspace deliberately does not carry — only pytest,
+    httpx, pyjwt and cryptography. audit.py needs nothing beyond httpx, so
+    loading the file directly exercises the real code without widening the
+    test workspace's dependencies.
+
+    A fresh module per test also gives each one a clean debounce timestamp.
+    """
+    spec = importlib.util.spec_from_file_location("harness_auth_audit_under_test", AUDIT_MODULE_PATH)
+    assert spec is not None and spec.loader is not None, f"cannot load {AUDIT_MODULE_PATH}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _probe_payload() -> dict[str, Any]:
+    return {
+        "service": "test-harness",
+        "event": "auth_failed",
+        "sub": "dana",
+        "roles": ["advisor"],
+        "detail": {"reason": LEAK_MARKER},
+    }
+
+
+def test_a_dropped_audit_event_warns_once_and_leaks_nothing(
+    audit_module: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A real host answering 404 — the misconfiguration that looked like success.
+
+    Before `raise_for_status`, a HARNESS_AUDIT_URL pointing at some other
+    service's 404 was silent twice over: nothing recorded, nothing logged, and
+    an audit page that was simply, inexplicably empty.
+
+    The URL carries a marker in its query string and the payload carries the
+    same marker in `detail`. httpx puts the full request URL, query included,
+    into HTTPStatusError's message — so logging the exception's message rather
+    than its class is exactly how a credential would reach the log.
+    """
+    audit_module.AUDIT_URL = f"{IDENTITY_URL}/nonexistent?token={LEAK_MARKER}"
+
+    with caplog.at_level(logging.WARNING, logger="harness_auth.audit"):
+        for _ in range(3):
+            # Returning at all is the assertion that nothing escapes.
+            asyncio.run(audit_module._post(_probe_payload()))
+
+    records = [r for r in caplog.records if r.name == "harness_auth.audit"]
+    assert len(records) == 1, (
+        f"expected exactly one warning from three failed posts (debounced to "
+        f"once per {audit_module.LOG_DEBOUNCE_SECONDS:.0f}s), got {len(records)}: "
+        f"{[r.getMessage() for r in records]}"
+    )
+
+    message = records[0].getMessage()
+    assert records[0].levelno == logging.WARNING, f"expected WARNING, got {records[0].levelname}"
+    assert "auth_failed" in message, f"the line does not name the dropped event: {message!r}"
+    assert "HTTPStatusError" in message, (
+        f"the line does not name the exception class: {message!r}"
+    )
+    assert LEAK_MARKER not in message, (
+        f"the line leaked the detail payload or the URL's query string: {message!r}"
+    )
+    assert "?" not in message, f"the URL's query string was not stripped: {message!r}"
+
+
+def test_the_dropped_event_warning_resumes_after_the_debounce_window(
+    audit_module: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Debounced, not silenced after the first one.
+
+    Winding the module's timestamp back is how this stays a fast test rather
+    than a sixty-second one.
+    """
+    audit_module.AUDIT_URL = f"{IDENTITY_URL}/nonexistent"
+
+    with caplog.at_level(logging.WARNING, logger="harness_auth.audit"):
+        asyncio.run(audit_module._post(_probe_payload()))
+        asyncio.run(audit_module._post(_probe_payload()))          # suppressed
+        audit_module._last_warned -= audit_module.LOG_DEBOUNCE_SECONDS + 1
+        asyncio.run(audit_module._post(_probe_payload()))          # window reopened
+
+    records = [r for r in caplog.records if r.name == "harness_auth.audit"]
+    assert len(records) == 2, (
+        "a dead audit service must keep warning once the window reopens; "
+        f"expected 2 warnings, got {len(records)}"
+    )
+
+
+def test_a_successful_audit_post_logs_nothing(
+    audit_module: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The negative control: without it, a _post that always warned would pass."""
+    audit_module.AUDIT_URL = f"{AUDIT_URL}/events"
+
+    with caplog.at_level(logging.WARNING, logger="harness_auth.audit"):
+        asyncio.run(audit_module._post(_probe_payload()))
+
+    records = [r for r in caplog.records if r.name == "harness_auth.audit"]
+    assert not records, f"a successful post warned anyway: {[r.getMessage() for r in records]}"
+
+
+# --------------------------------------------------------------------------
 # Auditing must never change the outcome of a request (SPEC §2).
 #
 # Disruptive: this stops and restarts the audit container. It is deliberately
@@ -674,7 +793,11 @@ def _compose(*args: str) -> None:
     )
 
 
-def _compose_logs(*services: str, since: str = "60s") -> str:
+# Wider than harness_auth.audit's LOG_DEBOUNCE_SECONDS. If the gateway process
+# warned shortly before this test ran, the new warning is suppressed and the
+# earlier one must still be inside the window, or the search fails for a reason
+# that has nothing to do with the behavior under test.
+def _compose_logs(*services: str, since: str = "180s") -> str:
     result = subprocess.run(
         ["docker", "compose", "logs", "--since", since, *services],
         cwd=REPO_ROOT,

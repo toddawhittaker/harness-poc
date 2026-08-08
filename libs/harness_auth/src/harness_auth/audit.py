@@ -6,9 +6,11 @@ returning errors, the caller carries on and the event is lost. An audit trail
 that can take the harness down is a liability, not a control.
 
 Lost, but never silently. A dropped event leaves one WARNING line naming the
-event and the URL that would not take it — enough to tell a misconfigured
-HARNESS_AUDIT_URL from a stopped container in the ten seconds before a demo,
-instead of discovering an empty audit page in front of the room.
+event, the endpoint that would not take it, and the exception class — enough
+to tell a misconfigured HARNESS_AUDIT_URL from a stopped container in the ten
+seconds before a demo, instead of discovering an empty audit page in front of
+the room. The line is debounced to once a minute per process, so a dead audit
+service warns steadily rather than drowning the log it is trying to inform.
 
 Never pass a raw token, an Authorization header, or a password in `detail`.
 The audit service drops such keys defensively, but the rule is upstream: tokens
@@ -20,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from typing import Any
 
 import httpx
@@ -27,6 +30,10 @@ import httpx
 AUDIT_URL = os.environ.get("HARNESS_AUDIT_URL", "http://audit:8030/events")
 SERVICE_NAME = os.environ.get("HARNESS_SERVICE_NAME", "unknown")
 TIMEOUT_SECONDS = 2.0
+LOG_DEBOUNCE_SECONDS = 60.0
+
+# Module level, so the debounce is per process rather than per call site.
+_last_warned = 0.0
 
 logger = logging.getLogger("harness_auth.audit")
 
@@ -36,15 +43,37 @@ logger = logging.getLogger("harness_auth.audit")
 _in_flight: set[asyncio.Task[None]] = set()
 
 
-def _dropped(event: str, url: str, cause: str) -> None:
-    """One line, naming the event and the URL. Never the detail payload.
+def _dropped(event: str, url: str, exception_class: str) -> None:
+    """One line: the event type, the endpoint, and the exception class.
 
-    `detail` holds whatever a caller put there, and a dropped-event log is the
-    one place that must not become the leak the audit service is careful to
-    prevent. The event name and the target URL are enough to diagnose this,
-    and neither is caller data.
+    Three things are deliberately absent.
+
+    The detail payload: it holds whatever a caller put there, and a
+    dropped-event log is the one place that must not become the leak the audit
+    service works to prevent.
+
+    The exception's message: httpx embeds the full request URL, query string
+    included, in several of its messages — HTTPStatusError most of all. The
+    class name says what broke; the message would say it with whatever the
+    query string carried.
+
+    The query string: stripped here rather than at the call site, so no future
+    caller can route around it.
     """
-    logger.warning("audit event %r dropped: POST %s failed (%s)", event, url, cause)
+    global _last_warned
+
+    # Debounced per process. A dead audit service should warn steadily enough
+    # to notice during setup, not scream once per request and bury everything
+    # else in the log you are trying to read.
+    now = time.monotonic()
+    if now - _last_warned < LOG_DEBOUNCE_SECONDS:
+        return
+    _last_warned = now
+
+    logger.warning(
+        "audit event %r dropped: POST %s failed (%s)",
+        event, url.split("?", 1)[0], exception_class,
+    )
 
 
 async def _post(payload: dict[str, Any]) -> None:
@@ -56,13 +85,13 @@ async def _post(payload: dict[str, Any]) -> None:
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             response = await client.post(url, json=payload)
-        # A non-2xx is a dropped event too. Without this check a misconfigured
-        # HARNESS_AUDIT_URL pointing at some other service's 404 looks exactly
-        # like success, and the audit page is simply, inexplicably empty.
-        if response.status_code >= 400:
-            _dropped(event, url, f"HTTP {response.status_code}")
+            # A non-2xx is a dropped event too. Without this a misconfigured
+            # HARNESS_AUDIT_URL pointing at some other service's 404 looks
+            # exactly like success, and the audit page is simply, inexplicably
+            # empty. No retry: fire-and-forget stays fire-and-forget.
+            response.raise_for_status()
     except Exception as exc:  # noqa: BLE001 — auditing must never break the caller
-        _dropped(event, url, f"{type(exc).__name__}: {exc}")
+        _dropped(event, url, type(exc).__name__)
 
 
 async def audit_event(
@@ -93,7 +122,7 @@ async def audit_event(
         # No running loop (a sync caller, or interpreter shutdown). Losing the
         # event is the correct trade — auditing never breaks the caller — but
         # it still gets a breadcrumb.
-        _dropped(event, AUDIT_URL, f"RuntimeError: {exc}")
+        _dropped(event, AUDIT_URL, type(exc).__name__)
         return
     _in_flight.add(task)
     task.add_done_callback(_in_flight.discard)
