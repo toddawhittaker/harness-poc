@@ -277,9 +277,16 @@ LAST_NAMES = [
 N_STUDENTS = 300
 FIRST_STUDENT_ID = 1001
 
-# Dana advises a contiguous block; S-1042 sits inside it because demo moment 6
-# asks about that student by name.
-DANA_ADVISEE_IDS = [f"S-{n}" for n in range(1030, 1055)]  # 25 students
+# Dana advises a block with S-1044 deliberately punched out of the middle, and
+# S-1042 inside it because demo moment 6 asks about that student by name.
+#
+# The hole is load-bearing, not untidiness. S-1044 is a real, seeded student in
+# the middle of dana's id range who belongs to another advisor, which is what
+# makes the SPEC §4.4 refusal — "Student S-1044 is not among your assigned
+# advisees" — an authorization boundary rather than a "no such student" answer.
+# A contiguous block leaves nothing to ask about. Do not close the gap.
+DANA_ADVISEE_IDS = [f"S-{n}" for n in range(1030, 1056) if n != 1044]  # 25 students
+NOT_DANAS_ADVISEE = "S-1044"
 
 # The eight quiet ones. Demo moment 1 depends on this tail existing and being
 # small enough to name out loud.
@@ -681,6 +688,19 @@ def verify(state: dict[str, dict]) -> None:
     assert len(dana_advisees) == 25, "dana must advise exactly 25 students"
     quiet = [s for s in dana_advisees if s["last_login_days"] > 10]
     assert len(quiet) == 8, f"expected 8 quiet advisees for dana, got {len(quiet)}"
+
+    # The RBAC refusal needs a seeded student inside dana's id range who is not
+    # hers, or the test proves "no such student" instead of "not your advisee".
+    numbers = sorted(int(sid.split("-")[1]) for sid in DANA_ADVISEE_IDS)
+    assert numbers != list(range(numbers[0], numbers[-1] + 1)), (
+        "dana's advisee ids are contiguous; there is no seeded non-advisee to "
+        "ask about, and the SPEC §4.4 refusal test cannot tell an authorization "
+        "boundary from a missing record"
+    )
+    assert NOT_DANAS_ADVISEE in state, f"{NOT_DANAS_ADVISEE} must be a real student"
+    assert NOT_DANAS_ADVISEE not in set(DANA_ADVISEE_IDS), (
+        f"{NOT_DANAS_ADVISEE} must belong to another advisor"
+    )
 
     # Demo moment 6: S-1042 must have a clean next-term answer.
     s1042 = state["S-1042"]
