@@ -257,8 +257,12 @@ services:
       GATEWAY_URL: http://gateway:8000
       # Signs this app's own session cookie, and nothing else — it has no
       # bearing on the harness JWTs, which identity-stub signs with RS256.
-      # Override it in .env for anything that outlives a demo.
-      CHAINLIT_AUTH_SECRET: ${CHAINLIT_AUTH_SECRET:-harness-poc-demo-cookie-secret-advisor}
+      # The container-facing name is Chainlit's own and cannot change; the
+      # .env-facing name is per app, so the two surfaces can hold different
+      # secrets. The defaults are for localhost. Anything on a tunnel must set
+      # real values in .env — a public URL plus a published cookie secret is a
+      # forgeable login.
+      CHAINLIT_AUTH_SECRET: ${CHAINLIT_AUTH_SECRET_ADVISOR:-harness-poc-demo-cookie-secret-advisor}
     volumes:
       - ./apps/ui-advisor:/app/apps/ui-advisor
     depends_on:
@@ -284,7 +288,9 @@ services:
     environment:
       IDENTITY_URL: http://identity-stub:8001
       GATEWAY_URL: http://gateway:8000
-      CHAINLIT_AUTH_SECRET: ${CHAINLIT_AUTH_SECRET:-harness-poc-demo-cookie-secret-exec}
+      # Same as ui-advisor above, and deliberately a different variable and a
+      # different default: two surfaces, two session-cookie secrets.
+      CHAINLIT_AUTH_SECRET: ${CHAINLIT_AUTH_SECRET_EXEC:-harness-poc-demo-cookie-secret-exec}
     volumes:
       - ./apps/ui-exec:/app/apps/ui-exec
     depends_on:
