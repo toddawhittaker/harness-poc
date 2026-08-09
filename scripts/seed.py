@@ -195,6 +195,11 @@ NEXT_TERM_OFFERED = {
 # Labor market
 # ---------------------------------------------------------------------------
 
+# What "fast-growing" means when demo moment 7 asks for it. Six of the twelve
+# occupations sit above this line; the trio the qualification synthesis needs
+# must all be among them, which is what verify() checks.
+FAST_GROWING_MIN_PCT = 20.0
+
 # (soc_code, title, growth_pct, median_wage, skills)
 OCCUPATIONS = [
     ("15-2099", "AI/ML Engineers", 35.2, 136620,
@@ -230,7 +235,12 @@ OCCUPATIONS = [
     ("13-2051", "Financial Analysts", 8.2, 99890,
      ["financial analysis", "financial reporting", "budgeting and forecasting",
       "strategic planning", "data visualization", "SQL"]),
-    ("15-1244", "Network and Computer Systems Administrators", 3.1, 95360,
+    # 21.5% is a demo constraint, not an observation. Demo moment 7 asks about
+    # *fast-growing* occupations, so a partial match parked at 3.1% is filtered
+    # out by the question itself and the strong/partial/miss trio collapses to a
+    # single strong match. verify() now checks the trio inside the fast-growing
+    # band rather than across all twelve, so this cannot silently regress.
+    ("15-1244", "Network and Computer Systems Administrators", 21.5, 95360,
      ["systems administration", "network engineering", "infrastructure automation",
       "containerization", "technical documentation", "cloud architecture"]),
 ]
@@ -301,6 +311,34 @@ HANDMADE_TRANSCRIPTS: dict[str, tuple[str, list[str]]] = {
     "S-1045": ("DAT-MS", ["DAT-500", "DAT-510"]),
     # The blocked one: wants Corporate Finance, has not taken Financial Accounting.
     "S-1049": ("BUS-BS", ["BUS-101", "BUS-230"]),
+}
+
+# The student demo moment 6 asks about. Kept separate from HANDMADE_TRANSCRIPTS
+# on purpose, and the purpose is not style.
+#
+# HANDMADE_TRANSCRIPTS is consulted inside make_students, where a handmade entry
+# skips the random.choice that picks a program. Adding one there moves every
+# later draw in the stream — including the loop that re-draws last_login for all
+# of dana's advisees — which would change S-1042's record. Session 2 decided
+# S-1042's record must not move: he is legitimately near the end of his program,
+# and bending a real answer to fit a slide is the one dishonest thing a demo
+# about honest answers cannot do. So the pin is applied later, in seed_colleague,
+# where it disturbs only students seeded after this one.
+#
+# S-1055 is a CS-BS student in dana's block with a 3.41 GPA who logged in three
+# days ago — no flags, nothing to distract from the question being asked. With
+# CS-101, CS-201 and CS-320 behind him and CS-210 in progress, next term offers
+# three courses he can actually take and exactly one he cannot:
+#
+#   options   CS-310 Algorithms          (prereq CS-201, met)
+#             CS-350 Software Engineering (prereq CS-201, met)
+#             CS-410 Cloud Architecture   (prereq CS-320, met)
+#   blocked   CS-460 Capstone             (needs CS-310 and CS-350 first)
+#
+# student_id -> (completed course codes, current-term registrations)
+STEP_6_STUDENT = "S-1055"
+PINNED_PROGRESS: dict[str, tuple[list[str], list[str]]] = {
+    STEP_6_STUDENT: (["CS-101", "CS-201", "CS-320"], ["CS-210"]),
 }
 
 # Canvas sections. noor teaches CYB-310-A and BUS-201-B; BUS-201-A belongs to
@@ -492,7 +530,12 @@ def seed_colleague(students: list[dict]) -> dict[str, dict]:
 
     state: dict[str, dict] = {}
     for student in students:
+        pinned = PINNED_PROGRESS.get(student["id"])
+        # Drawn either way, then overridden. Skipping the draw for a pinned
+        # student would resequence every student seeded before this one too.
         completed = completed_for(student)
+        if pinned:
+            completed = list(pinned[0])
         credits = sum(COURSES[code][2] for code in completed)
         c.execute("INSERT INTO students VALUES (?,?,?,?,?,?)",
                   (student["id"], student["name"], student["program_code"],
@@ -510,6 +553,8 @@ def seed_colleague(students: list[dict]) -> dict[str, dict]:
         # enough to talk about.
         eligible = eligible_next(student["program_code"], set(completed))
         current = random.sample(eligible, min(random.randint(1, 3), len(eligible)))
+        if pinned:
+            current = list(pinned[1])
         for code in current:
             c.execute("INSERT INTO registrations VALUES (?,?,?)",
                       (student["id"], code, CURRENT_TERM))
@@ -673,6 +718,28 @@ def taught_skills() -> dict[str, set[str]]:
     }
 
 
+def next_term_shape(student: dict) -> tuple[list[str], list[str], list[str]]:
+    """(open, blocked, in progress) — the three lists get_next_term_options returns.
+
+    Kept in step with services/mcp-colleague/app.py::get_next_term_options: a
+    course being taken this term is neither an option nor a blocker, and a
+    prerequisite in progress is not yet met.
+    """
+    completed = set(student["completed"])
+    now = set(student["current"])
+    options, blocked, in_progress = [], [], []
+    for code, _title, _credits, prereqs, _skills in CURRICULUM[student["program_code"]]:
+        if code in completed:
+            continue
+        if code in now:
+            in_progress.append(code)
+        elif all(prereq in completed for prereq in prereqs):
+            options.append(code)
+        else:
+            blocked.append(code)
+    return options, blocked, in_progress
+
+
 def verify(state: dict[str, dict]) -> None:
     taught = taught_skills()
     all_taught = set().union(*taught.values())
@@ -702,12 +769,39 @@ def verify(state: dict[str, dict]) -> None:
         f"{NOT_DANAS_ADVISEE} must belong to another advisor"
     )
 
-    # Demo moment 6: S-1042 must have a clean next-term answer.
+    # Demo moment 6 asks one advisee what to take next term. The answer is only
+    # worth putting on a projector if it has open doors AND a closed one, so
+    # both halves are asserted the way get_next_term_options computes them:
+    # a course being taken right now is neither an option nor a blocker.
+    step6 = state[STEP_6_STUDENT]
+    assert STEP_6_STUDENT in set(DANA_ADVISEE_IDS), \
+        f"{STEP_6_STUDENT} must be one of dana's advisees or she cannot ask about him"
+    step6_options, step6_blocked, step6_now = next_term_shape(step6)
+    assert len(step6_options) == 3, (
+        f"{STEP_6_STUDENT} should have three open next-term courses, got {step6_options}"
+    )
+    assert all(code in NEXT_TERM_OFFERED for code in step6_options), \
+        f"{STEP_6_STUDENT}'s open courses must actually be offered next term"
+    assert len(step6_blocked) == 1, (
+        f"{STEP_6_STUDENT} needs exactly one prereq-blocked course for the beat to "
+        f"land, got {step6_blocked}"
+    )
+    assert step6_now, f"{STEP_6_STUDENT} should be mid-program, not sitting out the term"
+    assert step6["last_login_days"] <= 10 and step6["gpa"] >= 3.0, (
+        f"{STEP_6_STUDENT} should be an unremarkable student; a struggling one drags "
+        "the room back to demo moment 1"
+    )
+
+    # S-1042 is NOT the step 6 student and his record is deliberately untouched:
+    # he is near the end of his program, so his honest answer is "nothing new to
+    # register for until CYB-410 and CYB-420 are finished". Asserted so nobody
+    # later "fixes" him into a slide.
     s1042 = state["S-1042"]
-    options = eligible_next(s1042["program_code"], set(s1042["completed"]))
-    assert len(options) >= 2, "S-1042 needs at least two eligible next-term courses"
-    assert all(code in NEXT_TERM_OFFERED for code in options), \
-        "S-1042's eligible courses must actually be offered next term"
+    s1042_options, _s1042_blocked, _s1042_now = next_term_shape(s1042)
+    assert not s1042_options, (
+        "S-1042 is supposed to be the near-complete student with nothing new to "
+        f"take; he now has {s1042_options}. Recast demo moment 6, do not retune him."
+    )
 
     # ...and S-1049 must be blocked by an unmet prereq.
     s1049 = state["S-1049"]
@@ -716,13 +810,33 @@ def verify(state: dict[str, dict]) -> None:
     assert "BUS-310" in blocked, "S-1049 must be blocked out of BUS-310 by the BUS-150 prereq"
 
     # Demo moment 7: strong / partial / miss for a CYB-BS graduate.
+    #
+    # The question the demo actually asks is "which FAST-GROWING occupations
+    # would a CYB-BS graduate qualify for", so the trio has to survive that
+    # filter. Asserting it across all twelve occupations is what let a 3.1%
+    # partial match and an 8.2% miss look correct while being invisible to the
+    # question. Everything below is checked inside the fast-growing band.
     cyb = taught["CYB-BS"]
     by_title = {title: set(skills) for _soc, title, _g, _w, skills in OCCUPATIONS}
+    fast = {title: set(skills) for _soc, title, growth, _w, skills in OCCUPATIONS
+            if growth >= FAST_GROWING_MIN_PCT}
+
+    strong = [t for t, skills in fast.items() if skills <= cyb]
+    partial = [t for t, skills in fast.items() if 0 < len(skills & cyb) < len(skills)]
+    miss = [t for t, skills in fast.items() if not (skills & cyb)]
+    assert strong, f"no fast-growing occupation is a strong CYB-BS match; have {sorted(fast)}"
+    assert partial, "no fast-growing occupation is a partial CYB-BS match"
+    assert miss, "no fast-growing occupation is a clean CYB-BS miss"
+
     isa = by_title["Information Security Analysts"]
     assert isa <= cyb, f"CYB-BS must cover every ISA skill; missing {sorted(isa - cyb)}"
+    assert "Information Security Analysts" in strong, "ISA must be the fast-growing strong match"
     netadmin = by_title["Network and Computer Systems Administrators"]
-    assert 0 < len(netadmin & cyb) < len(netadmin), "NetAdmin must be a partial match for CYB-BS"
-    assert not (by_title["Financial Analysts"] & cyb), "Financial Analysts must be a clean miss"
+    assert "Network and Computer Systems Administrators" in partial, (
+        "Network and Computer Systems Administrators is the designated partial match "
+        f"and must grow at least {FAST_GROWING_MIN_PCT}% to survive the demo question"
+    )
+    assert "Data Scientists" in miss, "Data Scientists is the designated fast-growing clean miss"
 
     # Demo moment 8: the two fast-growers must be unmapped and genuinely gapped.
     mapped = {soc for _p, soc in PROGRAM_OCCUPATION_MAP}
@@ -739,13 +853,19 @@ def verify(state: dict[str, dict]) -> None:
     for skill in DELIBERATELY_UNTAUGHT:
         assert skill not in all_taught, f"{skill!r} was supposed to stay untaught"
 
+    ds = by_title["Data Scientists"]
     print("verified:")
     print(f"  dana advises {len(dana_advisees)}, of whom {len(quiet)} have not logged in for >10 days")
-    print(f"  S-1042 next term: {', '.join(options)}")
+    print(f"  demo moment 6 asks about {STEP_6_STUDENT} ({step6['name']}, {step6['program_code']})")
+    print(f"    taking now: {', '.join(step6_now)}")
+    print(f"    next term:  {', '.join(step6_options)}")
+    print(f"    blocked:    {', '.join(step6_blocked)}")
+    print(f"  S-1042 keeps his own answer: nothing new next term, {len(_s1042_blocked)} blocked")
     print(f"  S-1049 blocked out of: {', '.join(blocked)}")
+    print(f"  fast-growing means >= {FAST_GROWING_MIN_PCT}% ({len(fast)} of {len(OCCUPATIONS)} occupations)")
     print(f"  CYB-BS vs Information Security Analysts: {len(isa & cyb)}/{len(isa)} skills (strong)")
     print(f"  CYB-BS vs Network/Systems Administrators: {len(netadmin & cyb)}/{len(netadmin)} (partial)")
-    print(f"  CYB-BS vs Financial Analysts: 0/{len(by_title['Financial Analysts'])} (miss)")
+    print(f"  CYB-BS vs Data Scientists: {len(ds & cyb)}/{len(ds)} (miss)")
     print(f"  unmapped fast-growers: {', '.join(sorted(top3_titles - {'Information Security Analysts'}))}")
     print(f"  skills no program teaches: {', '.join(sorted(set(DELIBERATELY_UNTAUGHT)))}")
 
