@@ -17,7 +17,841 @@ fails the seed run if the shape above stops being true.
 
 ---
 
-# Session 3 verification — the current record
+# Session 4 verification — the current record
+
+Two runs. The record below is the SECOND run, which is the authoritative one;
+the first run is summarised under "The first run, and what it changed" at the
+end of this section. Both were made by the demo-verifier agent against the live
+compose stack, driven through the real Chainlit apps over socket.io with a real
+`POST /login`, with `./scripts/demo_bypass.sh` unmodified for step 4. Nothing in
+the repository was changed during either run.
+
+**Read this first: two changes were made AFTER the second run**, in response to
+its findings, and are therefore NOT reflected in the PASS/FAIL table below. See
+`reports/session-4.md` §"After the second verifier run" for the spot-check
+evidence covering them:
+
+1. `services/gateway/prompts.py` — the holder list in `refusal_message` is now
+   a closed list ("those two, and no third"). This closes the step 3a failure
+   recorded below, verified 3 of 3.
+2. `services/orchestrator/prompts.py` — the reply-shape block now bans the
+   closing offer outright. This improves, but does not fully close, the
+   finding-7 relapse recorded below.
+
+---
+
+## Run 2 — the authoritative run
+
+Run 2026-08-09 04:15:05–04:37 UTC by the demo-verifier agent, against the live
+compose stack with all ten services healthy. This supersedes the run recorded at
+`session-4-verification.md` in the same scratchpad. Nothing in the repository
+was changed: `git status --porcelain` lists the same ten modified files before
+and after the run. Steps 1, 2, 3, 5, 6, 7 and 8 were driven through the real
+Chainlit apps over socket.io with a real `POST /login`; step 4 ran
+`./scripts/demo_bypass.sh` unmodified. Audit rows 2442–2578 belong to this run —
+137 rows, 76 of them from one clean pass of the ten-step script. Zero audit
+events were dropped at or after 04:15:00; the two drops in the preceding hour
+(03:49:57 and 04:13:38, both `gateway auth_failed`) come from the test suite run
+while the audit container was restarting, before this session began.
+
+## Summary
+
+| # | SPEC §7 claim | Result | Change since run 1 |
+|---|---|---|---|
+| 1 | Dana: struggling advisees, quiet ones flagged, `[colleague]` | PASS, with an arithmetic wart in one of two runs | slightly worse |
+| 2 | Kim, same question: aggregates, no individual names | **PASS on the claim — was FAIL.** Gate fix works, 3 of 3. But finding 7 is back in all three | claim fixed, quality regressed |
+| 3a | Pat: courteous gate refusal | **FAIL — was PASS.** 2 of 3 refusals name deans as holders | regressed |
+| 3b | Pat: labor answer | PASS | unchanged |
+| 4 | The bypass, blocked at the MCP layer | PASS | unchanged |
+| 5a | Noor's own section | PASS, 3 of 3 | unchanged |
+| 5b | Noor refused by name | PASS on the claim 3 of 3; 1 of 3 never triggers the tool refusal; citation wrong 3 of 3 | worse |
+| 5c | Kim's rollup | PASS on the claim; **every citation is `[kuali]` and should be `[canvas]`/`[colleague]`** | new defect |
+| 6 | Dana: what should S-1055 take next term | PASS | unchanged |
+| 7 | Qualification synthesis: strong, partial, miss | PASS on the claim in run 1; **the self-contradicting tally reproduces in run 2**; narration still 271 words | tallies unstable |
+| 8 | Gap synthesis: the two unmapped fast-growers | PASS on the claim; **grounding over-claim closed**; one arithmetic error that contradicts itself | grounding fixed, new maths error |
+| 9 | Audit page shows the session, refusals and bypass included | PASS | unchanged |
+| 10 | Honesty slide claims | PASS (one claim untestable) | unchanged |
+| A | Prompt-cache discipline (SPEC §1) | PASS — 38 model calls, 0 with zero cache hits | unchanged |
+| D | Two apps visibly distinct | PASS | unchanged |
+
+**Verdict on the five changes made since run 1.** Change 1 (the gate) works and
+closes the blocker, but it has re-opened Session 3's finding 3 on step 3a.
+Change 2 (rule 6 moved to an unnumbered block) has not taken on steps 7 and 8 —
+narration is unchanged from run 1 in kind, and only slightly shorter. Change 3
+(rule 1's presumption case) has taken: step 2 no longer hunts or narrates the
+hunt, and that is the single biggest visible improvement in this run. Change 4
+(rule 5's union sentence) has taken: step 8's "missing anywhere" over-claim is
+gone. Change 5 (`ToolError` in mcp-kuali) is in the file and correct.
+
+---
+
+## (a) Step 2 — three separate asks
+
+**Kim is routed through, not refused at the gate, on all three.** Audit rows
+2447, 2454 and 2461 are `gateway router_classified`, intent `advisee_detail`,
+each followed by two `ok` tool calls and an `answer_returned`. There is no
+`refused_at_gate` row for kim anywhere in this run — the only three in the whole
+run (2469, 2475, 2478) are pat's. The blocker from run 1 is closed.
+
+Row ranges: ask A 2447–2453, ask B 2454–2460, ask C 2461–2467. All three called
+`get_program_summaries` (mcp-colleague) and `get_program_engagement_rollup`
+(mcp-canvas), both `decision: ok`. Latencies 9.7 s, 10.2 s, 11.9 s.
+
+**None of the three names an individual student.** SPEC §7.2's claim —
+"program aggregates, no individual names" — holds on all three.
+
+**Openings, verbatim, and the deliberation count.**
+
+Ask A, first line, 9 words:
+
+> Here's the picture across programs, ordered by concern level:
+
+Ask B, first line, 21 words:
+
+> I can't see your individual advisees, but here's the picture across programs
+> — two angles on where students are struggling.
+
+Ask C, first line, 33 words:
+
+> I can't isolate your specific advisees — no tool here maps advisors to
+> students. But here's what I can see across all programs, which gives a useful
+> picture of where concern is concentrated.
+
+**Words of deliberation before the first substantive line: zero in all three.**
+Ask A's opening is a bare transition clause and the data starts on the next
+line. Asks B and C open with the flat sentence rule 1 asks for and then go
+straight to the data in the same sentence. There is no first-person process
+talk, no tool inventory, no "let me", no hunting for a workaround. **This
+confirms and slightly improves on your spot check** — your worst opening was one
+transition clause, and mine is the same clause in ask A; asks B and C are better
+than that because the flat sentence is doing real work.
+
+**Total answer length:** 179, 185 and 279 words. Your 190–214 band is
+confirmed for two of three; ask C ran longer because the model chose two
+markdown tables.
+
+**But finding 7 is back, in all three, at the end of the answer.** Verbatim
+closing sentences:
+
+Ask A:
+
+> I cannot narrow this to your specific advisees without a tool that links
+> advisor assignments to students. If that's available, I could drill into
+> individual-level engagement by section.
+
+Ask B:
+
+> If you'd like me to drill into specific sections within any of these
+> programs, I can pull per-student engagement for those.
+
+Ask C:
+
+> If you can supply student IDs for your advisees, I can pull section-level
+> detail — days since last login and missing submissions per student — to give
+> you a more targeted picture.
+
+**So: no run asks kim to supply program codes or section ids — but ask C asks
+her to supply student IDs, and all three offer a route to per-student data.**
+That is a direct violation of rule 3 ("do not invite the person to supply
+student ids, section ids, or rosters, and do not describe what you could pull if
+they did") and of the last clause rule 1 gained in change 3 ("do not ask the
+person for ids or codes that would let you try again"). It is also a live
+authorization offer: kim is a dean, so `get_section_engagement` really would
+work for her, which is exactly what made Session 3's finding 7 land badly.
+
+**Verdict: PASS on the SPEC §7.2 claim, FAIL on answer quality.** The demo beat
+now happens, and the opening is clean. The last sentence of each answer
+undermines the beat it is in.
+
+---
+
+## (b) Steps 7 and 8 — do the tallies survive, and does the narration clear the bar?
+
+### The tallies survive in step 7 run 1 — every number verified
+
+Checked line by line against `data/kuali.db` and `data/labor.db`. Rows
+2533–2542.
+
+> **Information Security Analysts (15-1212)** — 32.7% growth, $120,360 median
+> [labor]. Skills: `incident response`, `network defense`, `regulatory
+> compliance`, `risk assessment`, `security architecture`, `security auditing`,
+> `threat intelligence`, `vulnerability assessment`. All 8 are in CYB-BS.
+> **8 of 8 covered.** ✓
+
+Confirmed. CYB-BS's fifteen outcome skills as listed in the reply match the
+database exactly.
+
+> **Network and Computer Systems Administrators (15-1244)** — 21.5% growth,
+> $95,360 median [labor]. … Missing: `cloud architecture`, `containerization`,
+> `infrastructure automation`. **3 of 6 covered.**
+
+Confirmed, and this is the partial. **The partial in my run is Network and
+Computer Systems Administrators at 3 of 6, not Cloud Infrastructure Architects.**
+Run 1 gave Cloud Infrastructure Architects its true value, 2 of 7.
+
+> **AI/ML Engineers (15-2099)** — 35.2% growth. CYB-BS covers none of `data
+> modeling`, `deep learning`, `distributed systems`, `machine learning`,
+> `predictive modeling`, `software development`, `statistical analysis`.
+> **0 of 7.**
+
+Confirmed — the clean miss. `[kuali]` and `[labor]` interleave on every line of
+the answer block. The strong/partial/miss trio is intact.
+
+### Narration on steps 7 and 8 — it persists, and step 7 does not clear the bar
+
+Step 7 run 1 opens, verbatim:
+
+> Now I'll match across the fast-growing occupations. The CYB-BS skills are:
+
+Step 8 opens, verbatim:
+
+> Now let me compute the skill match for each unmapped occupation against every
+> relevant program.
+
+Step 7 repeat opens, verbatim:
+
+> Now let me match the Cybersecurity BS skills against each fast-growing
+> occupation's required skills. The program covers: …
+
+**These are the same sentences you saw.** Your spot check is confirmed on both
+steps. But it is not one sentence on step 7 — the narration frames a working
+block that runs on:
+
+| Turn | Opening sentence | Words before the answer proper | Total |
+|---|---|---|---|
+| Step 7 run 1 | "Now I'll match across…" | **271** (before "Here's the answer:") | 426 |
+| Step 7 repeat | "Now let me match…" | 60 (before the first occupation) | 370 |
+| Step 8 | "Now let me compute…" | **167** (before "Two fast-growing occupations have no program mapped") | 431 |
+
+Step 7 run 1 also contains a second narration sentence mid-block:
+
+> Let me check each occupation from the top of the list:
+
+**Judging against Session 3's own bar.** Session 3 called "a line or two on
+steps 7 and 8" survivable and named step 2 as the real problem. Step 2 is now
+fixed. **Step 8 clears that bar: one sentence, 15 words, then working, then a
+clearly delimited answer.** I would ship step 8 as is. **Step 7 run 1 does not
+clear it:** 271 of 426 words — 64% of the reply — arrive before the sentence
+"Here's the answer:", and the room reads the whole first screen as scratch
+paper. That is better than run 1's 437 of 751, but the shape is identical. Step
+7 is the flagship synthesis slide and it is the one that still reads as a
+chatbot thinking aloud.
+
+One improvement worth recording: the false start rule 6 was written to forbid
+("— wait, machine learning is covered by DAT-MS") **did not appear anywhere in
+this run**. The `Wait` clause of the new block has taken.
+
+Mis-citation from run 1 persists. Step 7's closing sentence:
+
+> The administrative crosswalk maps CYB-BS to 15-1212 and 15-1244, which is
+> consistent with the skills analysis [kuali].
+
+`get_program_occupation_map` is an mcp-labor tool — audit rows 2536 and 2546 are
+both `mcp-labor` rows. N4 from run 1 is still open, unchanged.
+
+---
+
+## (c) Step 7 accuracy — the self-contradicting tally reproduces
+
+**It reproduces, on Cloud Infrastructure Architects rather than AI/ML
+Engineers.** Step 7 repeat (rows 2565–2574), verbatim:
+
+> **Cloud Infrastructure Architects** (33.8% growth, $130,390 median): **3 of 7
+> skills covered.** The program covers network engineering, systems
+> administration, and distributed systems is not directly covered. Missing: API
+> design, cloud architecture, containerization, infrastructure automation.
+> [kuali][labor]
+
+This is your defect exactly: a headline count that the same sentence then
+contradicts, with a "X is not covered, and in fact…" garble in the middle. It
+names two covered skills, claims three, and then omits `distributed systems`
+from the missing list it has just said is not covered.
+
+**The true number is 2 of 7.** Verified directly:
+
+```
+CYB-BS ∩ Cloud Infrastructure Architects = {network engineering, systems administration}
+missing = {API design, cloud architecture, containerization, distributed systems, infrastructure automation}
+```
+
+Run 1 of step 7 got this right (2 of 7, five missing named correctly). So the
+tally is unstable across runs, not wrong in a fixed way. **Your spot check's
+"3 of 7" for Cloud Infrastructure Architects was itself the wrong number** — it
+is the same defect, and 3 of 7 is not a variant reading, it is an error.
+
+**Which occupation serves as the partial.** Run 1: Network and Computer Systems
+Administrators at 3 of 6, matching Session 3. Repeat run: the model listed all
+twelve occupations and then blurred the partial — *"It partially overlaps with
+Cloud Infrastructure Architects and Network Administrators but falls well short
+of a qualifying match for those"* — so the trio dissolves into a list. The
+strong match survives both runs; the partial is where the instability sits.
+
+**One further number wrong in the repeat run:** *"Financial Analysts (8.2%
+growth, $99,890 median): 0 of 5 skills covered."* Financial Analysts has six
+skills in `data/labor.db`, not five. Zero coverage is right; the denominator is
+not.
+
+**A reproducible wart at the tool layer during step 7.** In *both* step 7 runs
+the model's first mcp-kuali call guesses a program code that does not exist:
+
+| Row | Reason |
+|---|---|
+| 2534 | `unknown program code CBS` |
+| 2566 | `unknown program code CYBERBS` |
+
+Both are audited `decision: "error"`, so they paint neutral grey rather than
+amber — the Session 3 finding-4 fix doing its job. But two for two means a grey
+error row will appear on the audit page during the flagship synthesis step every
+time. In the repeat run the model called `list_programs_catalog` *after* the
+failed guess (rows 2566 then 2568), which is the right tool in the wrong order.
+
+---
+
+## (d) Step 8 grounding — the over-claim is gone
+
+Rows 2543–2559, 22.9 s, nine tool calls: `list_programs_catalog`,
+`list_occupations`, `get_program_occupation_map`, two `get_occupation`, and
+**four `get_course_outcomes`** (rows 2549, 2550, 2551, 2552), all `ok`.
+
+**Four calls, four programs claimed about — CS-BS, DAT-MS, IS-MS, CYB-BS.** Every
+coverage claim names its programs:
+
+> - **deep learning** — absent from CS-BS, DAT-MS, IS-MS, and CYB-BS. [kuali]
+> - **containerization** and **infrastructure automation** — absent from CS-BS,
+>   IS-MS, DAT-MS, and CYB-BS. [kuali]
+
+**The "missing anywhere / union across all programs" over-claim is gone.** Run 1
+said *"Union across all programs covers 6 of 7 — only deep learning is uncovered
+anywhere"*. Nothing of that shape appears in this run. Rule 5's new sentence has
+taken. N3 from run 1 is **closed**.
+
+Both unmapped fast-growers surface, correctly and exclusively — `data/labor.db`
+confirms AI/ML Engineers and Cloud Infrastructure Architects are the only two
+occupations absent from `program_occupation_map`:
+
+> **1. AI/ML Engineers (SOC 15-2099)** — 35.2% projected growth, $136,620 median
+> wage. [labor] … The closest are CS-BS (4 of 7: data modeling, distributed
+> systems, software development, statistical analysis) and DAT-MS (4 of 7: data
+> modeling, machine learning, predictive modeling, statistical analysis).
+> [kuali] Together they leave only **deep learning** uncovered
+
+All verified true.
+
+**But there is one arithmetic error, and the answer contradicts itself about
+it.** On Cloud Infrastructure Architects:
+
+> - Combined CS-BS + IS-MS would cover 6 of 7 (only containerization missing).
+
+and then, in the answer proper:
+
+> Together they cover everything except **containerization**.
+
+The true union is **5 of 7**. CS-BS misses containerization, infrastructure
+automation and network engineering; IS-MS misses containerization, distributed
+systems and infrastructure automation; **infrastructure automation is missing
+from both.** The same answer says so four lines later — *"containerization and
+infrastructure automation — absent from CS-BS, IS-MS, DAT-MS, and CYB-BS"* — so
+the reply asserts both that infrastructure automation is covered by the pair and
+that it is covered by neither. The closing recommendation rests on the wrong
+half: *"with minimal net-new course development, since the foundational skills
+are already spread across your current catalog."*
+
+The AI/ML union claim (6 of 7, only deep learning missing) is correct.
+
+---
+
+## (e) Regression checks
+
+### Step 1 — dana, "Which of my advisees seem to be struggling this term?" — PASS with a wart
+
+Advisor Workspace, port 8080. Run 1: rows 2442–2446, one tool call
+(`get_my_advisees`, `ok`, row 2443), 11.1 s. Zero narration; the reply opens on
+the finding.
+
+The nine advisees named are exactly the nine of dana's 25 who carry
+`term_grade_flags` — verified against `data/colleague.db`. Every line is cited
+`[colleague]`, the quiet ones are carried by "last login N days ago", worst
+first.
+
+**But the headline number contradicts the list.** Run 1 opens:
+
+> Five of your advisees are clearly struggling this term. Here they are, ordered
+> by severity:
+
+and then lists nine, and closes:
+
+> The remaining 15 advisees show no active term-grade flags and have logged in
+> recently enough not to raise concern.
+
+Nine named plus fifteen remaining is 24; dana has 25. Both numbers are wrong, in
+the first and last sentences of the opening slide of the demo. The repeat run
+(rows 2560–2564) had no such problem, opening:
+
+> Here are your advisees who are struggling this term, ordered by severity:
+
+So this is sampling variance, not a fixed defect — but it is a counting error on
+slide one, and it is the same failure mode as steps 7 and 8's tallies.
+
+### Step 3a — pat, gate refusal — **FAIL**
+
+Executive Insights, port 8081. Rows 2468–2469, `refused_at_gate`, 1.5 s.
+Verbatim and complete:
+
+> Individual advisee records are held by advisors, faculty, and deans, and as an
+> adjunct you don't have access to them. You can, however, explore labor-market
+> data — occupations, wages, projected growth, and skills — which is open to all
+> roles.
+>
+> `no tools called`
+
+**It names deans as holders.** That is Session 3's finding 3 returning, and it
+is the direct cost of change 1's removal of the "do not name deans" clause from
+the `refusal_message` paragraph. Two repeat asks (rows 2475–2476, 2477–2478):
+
+> That question concerns individual student records and advising, which are held
+> by advisors, faculty, and deans — not available to an adjunct role. As an
+> adjunct you do have access to public labor-market data (occupations, wages,
+> growth, and skills), so I can help with that instead.
+
+> Advisee-level detail about individual students' progress is held by advisors
+> and faculty for their own advisees or sections, and as an adjunct you don't
+> have access to that. What you can reach is public labor-market data —
+> occupations, wages, projected growth, and skills — if that would help.
+
+**Two of three name deans.** Only the third is correct. Against the demo, this
+means the gate contradicts mcp-colleague's own spec-fixed string — *"Individual
+student records require an advisor assignment; deans receive aggregates."* —
+about two times in three.
+
+The second half of the check passes cleanly: **no run promises pat curriculum
+data.** All three offer labor-market data and only labor-market data, which is
+what pat's adjunct role actually reaches.
+
+### Step 3b — pat, "Which occupations are growing fastest?" — PASS
+
+Rows 2470–2474, `list_occupations` on mcp-labor (`ok`, row 2471), 5.2 s. Top
+five ranked by growth with wages, every row `[labor]`, AI/ML Engineers 35.2 % at
+the top. No narration. `servers: ["labor"]` on row 2473 — registry filtering
+visible, the student record system never in view.
+
+### Step 5a — noor, "How is my CYB-310 section doing this week?" — PASS, 3 of 3
+
+Rows 2481–2487, 2493–2499, 2505–2511. `get_my_sections` then
+`get_section_engagement`, both `ok`, every time. Run 1 verbatim opening:
+
+> **CYB-310-A is in strong shape this week.** All 7 students are active
+> [canvas].
+
+Seven students with days since login, submitted and missing; the two to watch
+named; cited `[canvas]`. No narration. The bare "CYB-310" in the question
+resolved to CYB-310-A in all three runs, so run 1's N5 worry about the section
+id is not reproducing on 5a.
+
+### Step 5b — noor, "And how's BUS-201-A doing?" — PASS on the claim, three defects
+
+Three runs, three behaviours again:
+
+| Run | Rows | Tool called | Refusal row | Answer |
+|---|---|---|---|---|
+| 1 | 2488–2492 | `get_my_sections` only | **none** | pivoted to BUS-201-B |
+| 2 | 2500–2504 | `get_section_engagement` | 2501, verbatim | relayed, cited `[colleague] [canvas]` |
+| 3 | 2512–2516 | `get_section_engagement` | 2513, verbatim | relayed, cited `[colleague]` |
+
+Run 1 verbatim:
+
+> You don't appear to teach a BUS-201-A section this term. I can see your
+> CYB-310-A section, which I just reported on above, and a BUS-201-B section.
+> Here's BUS-201-B:
+>
+> **BUS-201-B is struggling.** Only 33% of students have logged in this week,
+> and the 3-student section has 12 missing submissions total [canvas].
+>
+> Would you like me to pull the per-student breakdown for BUS-201-B to see who's
+> behind?
+
+**In run 1 the tool refusal never happened.** `get_section_engagement` was never
+called for BUS-201-A, so no `decision: refused` row exists for that turn, and
+the amber row step 9 points at is absent. The model saw BUS-201-B in noor's own
+list, one letter away, and answered about it instead.
+
+Runs 2 and 3 relay the refusal correctly but cite it wrongly:
+
+> BUS-201-A is not among your assigned sections this term — cross-section views
+> are limited to the dean's office. [colleague] [canvas]
+
+> I can't see BUS-201-A from here — that section isn't among your assigned
+> sections. The section-level engagement view for courses outside your own
+> teaching load belongs to the dean's office [colleague].
+
+The refusal came from mcp-canvas (rows 2501, 2513 are `mcp-canvas` rows).
+`[colleague]` is wrong in both. **Three of three runs have a citation defect on
+this turn**, which is worse than run 1's report.
+
+The authorization boundary held every time.
+
+### Step 5c — kim, "How's engagement across all programs this week?" — PASS on the claim, new citation defect
+
+Rows 2517–2523, `get_program_summaries` (mcp-colleague, row 2518) and
+`get_program_engagement_rollup` (mcp-canvas, row 2519), both `ok`, 12.3 s. Opens
+on the finding, no narration:
+
+> Data Analytics, MS leads with 97.1% of students logged in this week, followed
+> by Health Information Management at 95.5% [kuali].
+
+Six programs in a table, worst first, no individual names, and — importantly —
+**no offer of a route to per-student data.** Finding 7 does not appear on this
+turn, which makes the step-2 recurrence look like a property of the "my
+advisees" question rather than of the dean role.
+
+**But every citation in the answer is `[kuali]`.** There are eleven `[kuali]`
+markers and zero `[canvas]` and zero `[colleague]`, on an answer built entirely
+from mcp-canvas and mcp-colleague data. SPEC §7.5 says this beat is cited
+`[canvas]`. Rule 2 defines `[kuali]` as "curriculum and course outcomes", none
+of which appears here. This is new since run 1, where 5c was cited `[canvas]`
+throughout.
+
+### Step 6 — dana, "What should S-1055 take next term?" — PASS
+
+Rows 2524–2532, three mcp-colleague calls all `ok` (2525–2527), 9.8 s. It is
+about S-1055, and it is right:
+
+> Leon Cline (S-1055, CS-BS, GPA 3.41) has three courses available next term
+> (2027SP), all with open seats [colleague].
+
+CS-310 (36 seats), CS-350 (21), CS-410 (35), each with the prerequisite that
+cleared it; CS-460 Capstone named as blocked until CS-310 and CS-350 are done;
+CS-210, the course he is sitting in, correctly absent from the options. Zero
+narration. Minor: only the first sentence carries `[colleague]` and the rest of
+the facts are uncited, but the marker the spec names is present.
+
+---
+
+## (f) Standing checks
+
+**Audit rows for every step, refusals and the bypass included: PASS.** Every
+step of the script has rows; the mapping is in the row table at the end of this
+report. Refusals recorded in this run, reasons verbatim:
+
+| Row | Service | Reason |
+|---|---|---|
+| 2469, 2475, 2478 | gateway | `refused_at_gate`, intent `advisee_detail` (pat — step 3a and two repeats) |
+| 2480 | mcp-colleague | `get_my_advisees requires the advisor role.` (the bypass, step 4) |
+| 2501, 2513 | mcp-canvas | `Section BUS-201-A is not among your assigned sections; cross-section views belong to the dean.` |
+| 2575–2578 | (direct tool probes) | the four spec-fixed strings, below |
+
+Errors, painted neutral grey rather than amber: rows 2534 (`unknown program code
+CBS`) and 2566 (`unknown program code CYBERBS`), both `decision: "error"`.
+
+**Step 4 — the bypass — PASS.** `./scripts/demo_bypass.sh`, unmodified. Rows
+2479–2480. Stage 2 (orchestrator direct, gate skipped) called no tools —
+`tools_used: []`, `servers: ["labor"]` on row 2479 — and opened on the flat
+sentence:
+
+> I cannot see your advisees from here. The tools I have access to cover
+> student records and degree progress [colleague], Canvas engagement [canvas],
+> curriculum and course outcomes [kuali], and labor-market data [labor] — but
+> none of them can retrieve a list keyed by advisor. I would need a tool that
+> returns the advisees for a given faculty member; it is not among those
+> available to me.
+
+Rule 4 holds — it says what it would need and does not ask pat to supply
+anything. One nit: the middle clause is a tool inventory, which the new
+unnumbered block forbids ("no listing of the tools you have"). It reads
+acceptably here because it doubles as an explanation, but it is the block's own
+prohibition being ignored.
+
+Stage 3 (tool server direct): `Error executing tool get_my_advisees:
+get_my_advisees requires the advisor role.` Row 2480, `decision: refused`,
+reason recorded verbatim, amber in the viewer.
+
+**Prompt-cache discipline: PASS.** Thirty-eight model calls in the window carry
+cache statistics and **not one reported zero cache hits**. Router hits were 896
+on every call but one (768 on row 2481, noor's first turn), with misses between
+16 and 150 — a fixed prefix with a short dynamic tail. Orchestrator hits scale
+with the role's tool count as before: 1408 for pat with two tools in view,
+2944–3840 for advisor and faculty, 4096–10112 for kim, peaking at 10112 on the
+step 7 repeat. Residual misses are tool results, which are new content by
+definition. `AGENT_THINKING=false` is still in force
+(`libs/harness_models/src/harness_models/factory.py`), so the narration in steps
+7 and 8 is answer text the model chose to write, not leaked reasoning.
+
+**Spec-fixed refusal strings, checked directly at the tool layer: PASS, all four
+verbatim.** Rows 2575–2578.
+
+| Call | String returned |
+|---|---|
+| kim → `get_student_summary(S-1055)` on :8021 | `Individual student records require an advisor assignment; deans receive aggregates.` |
+| dana → `get_student_summary(S-1001)` on :8021 | `Student S-1001 is not among your assigned advisees.` |
+| noor → `get_section_engagement(BUS-201-A)` on :8023 | `Section BUS-201-A is not among your assigned sections; cross-section views belong to the dean.` |
+| pat → `get_my_advisees()` on :8021 | `get_my_advisees requires the advisor role.` |
+
+**Two apps visibly distinct: PASS.** `GET /auth/config` returns
+`"default_theme":"light"` on 8080 and `"default_theme":"dark"` on 8081.
+Greetings differ ("Advisor Workspace" against "Executive Insights") and both
+name the audit record.
+
+**Audit viewer at limit=200 with the grey error row: PASS.** The served page
+carries `fetch("/events?limit=200")` at line 164, `--error: #a8b0be` at line 15,
+`tbody tr.error td.event { color: var(--error); }` at line 67, and
+`DECISION_CLASS = { ok: "ok", refused: "refused", error: "error" }` at line 100
+with `if (decision) return DECISION_CLASS[decision] || "error";` at line 112.
+Rows 2534 and 2566 are `decision: "error"` and sit inside the newest-200 window
+(2379–2578), so the grey row is on the page right now. One clean pass of the
+ten-step script writes 76 rows, leaving 124 rows of headroom at limit=200.
+
+**Registry filtering visible: PASS.** `servers` on every `answer_returned` row:
+pat `["labor"]` (2473, 2479), noor `["canvas", "kuali", "labor"]` (2487, 2492,
+2499, 2504, 2511, 2516), dana `["colleague", "kuali", "labor"]` (2446, 2532,
+2564), kim `["colleague", "canvas", "kuali", "labor"]` (2453, 2460, 2467, 2523,
+2542, 2559, 2574). `reconnected` is empty on all of them — zero handshake
+retries across the run.
+
+**Step 10, honesty slide: PASS (one claim untestable).** Token pass-through:
+`services/gateway/app.py:160` forwards the caller's own `Authorization` header;
+the gateway mints nothing. Per-request MCP client construction:
+`services/orchestrator/app.py:265` builds toolsets inside an `AsyncExitStack`
+per `chat` call. Fail-open router: `services/gateway/app.py:107-111` audits
+`router_parse_failed` with `action: "failed open — enforcement continues below"`
+— still untestable without forcing a parse failure, which would mean changing
+something. Client-held history: proven live by noor's follow-up, where "And
+how's BUS-201-A doing?" resolved correctly with no server-side state. No writes,
+no TLS between containers: unchanged.
+
+---
+
+## (g) The step 5 instability — it reproduces, in a worse form
+
+Run 1's N5 described a run where the model guessed section id `CYB-310`, was
+refused, and then answered about BUS-201-B with no citations. **The BUS-201-B
+half reproduces; the CYB-310 guess does not.**
+
+In this run, all three 5a turns resolved "CYB-310" correctly via
+`get_my_sections` — no stray refusal, no guessed id. But run 1 of 5b pivoted to
+BUS-201-B without ever calling the tool for BUS-201-A (rows 2488–2492,
+`tools_used: ["get_my_sections"]`), so the refusal row that step 9 points at was
+never written.
+
+**The cause is in the seed, and it is structural.** `data/canvas.db`
+`faculty_assignments`:
+
+```
+noor|CYB-310-A
+noor|BUS-201-B
+fac-005|BUS-201-A
+```
+
+Noor's own second section is `BUS-201-B` — one character away from the section
+the demo asks her about and expects to be refused. When the model lists her
+sections before answering, it finds a near-identical id it *is* allowed to read
+and helpfully answers about that instead. This is not model whimsy; it is a
+name collision the seed created, and it will keep firing.
+
+**Proposed seed adjustment.** In `scripts/seed.py`, give noor a second section
+from a different course entirely — `CYB-210-A` is currently `fac-004`'s and is
+in her own subject area, so swapping `noor|BUS-201-B` for `noor|CYB-210-A` (and
+giving BUS-201-B to `fac-005`, who already holds BUS-201-A and BUS-310-A) leaves
+noor with no BUS section at all. Then "And how's BUS-201-A doing?" has nothing
+adjacent to pivot to and the tool refusal fires every time. This also removes
+run 1's other worry, because BUS-201-B's enrolment of three (Session 3 finding
+9) stops being reachable from the demo path.
+
+If the seed is not to be touched, the alternative is the demo script: ask noor
+about a section in a subject she does not teach at all, for example `HIM-210-A`.
+That is a one-line change to `SPEC.md` §7.5 and does not need the spec's
+BUS-201-A to survive.
+
+---
+
+## New findings
+
+Each names the file and the exact change.
+
+**N1. The gate names deans as holders of advisee detail again — Session 3's
+finding 3 has re-opened.** `services/gateway/prompts.py:42-50`. Two of three
+pat refusals say "held by advisors, faculty, and deans" (rows 2469, 2475).
+Change 1 removed both the bullet clause and the "do not name deans" clause; the
+first removal was necessary and the second was not — the second was the only
+thing keeping deans out of the refusal text, and the `advisee_detail` bullet's
+"Plausible for: advisor, faculty, dean" at line 24 is where the model is picking
+"dean" up.
+
+The change: the positive statement at lines 44-46 needs a scope marker, not a
+negation about deans, so it does not re-create the run-1 gate blocker. Replace
+
+```
+Name as holders only the roles that hold the thing itself —
+an individual student record is held by advisors, by assignment, and by faculty
+for their own sections.
+```
+
+with
+
+```
+Name as holders only the roles that hold the thing itself, and name them
+exactly: an individual student record is held by advisors, by assignment, and
+by faculty for their own sections — that list is complete, so do not add to it.
+```
+
+"That list is complete" is a constraint on the refusal sentence, not on the
+plausibility verdict, so it cannot leak back into the classification the way the
+run-1 clause did. Verify by re-running step 3a five times and step 2 three
+times.
+
+**N2. Step 2's answer ends by offering a route to per-student data — Session 3's
+finding 7, in all three asks.** `services/orchestrator/prompts.py`, rule 3 and
+rule 1. Rule 3 already forbids this in as many words, and rule 1's new clause
+forbids asking for ids. Both were ignored three times out of three. The rules do
+not need more prose; they need the prohibition attached to the shape of the
+reply, where the model is now demonstrably obeying instructions. Add to the
+unnumbered "THE SHAPE OF EVERY REPLY" block, which change 3 proved is the part
+the model reads:
+
+```
+Your last sentence is a finding too. Never end on what you could do next, what
+you would need, or what the person could give you. Delete any closing sentence
+containing "if you can", "if you'd like", "I could", or "let me know".
+```
+
+This is the single highest-value change left, because it lands on step 2, the
+slide where the room decides.
+
+**N3. Step 5c cites mcp-canvas and mcp-colleague data as `[kuali]`, eleven times
+out of eleven.** `services/orchestrator/prompts.py`, rule 2. The rollup answer
+is built from `get_program_engagement_rollup` (canvas) and
+`get_program_summaries` (colleague) and carries no `[canvas]` or `[colleague]`
+marker at all. SPEC §7.5 names `[canvas]` for this beat. Rule 2's `[kuali]`
+definition is "curriculum and course outcomes"; the model appears to be reading
+"program-level anything" as curriculum. One clause fixes it — extend the rule 2
+markers with the aggregate case:
+
+```
+[canvas] for this week's engagement and section activity, including
+program-level engagement rollups; [colleague] for student records, degree
+progress, enrollment, and program enrollment summaries; [kuali] for curriculum
+and course outcomes and nothing else
+```
+
+**N4. Step 5b cites the mcp-canvas refusal as `[colleague]`, three runs out of
+three.** Same file, same rule. Covered by the N3 wording above ("and nothing
+else" will not help here, but naming `[canvas]` as the source of section
+engagement already does). If it survives N3, rule 3 needs "cite a relayed
+refusal to the server that issued it".
+
+**N5. Step 7's tally is unstable and self-contradicting on the partial match.**
+`services/orchestrator/prompts.py`, rule 5. Reproduces your spot check exactly:
+"3 of 7 skills covered … network engineering, systems administration, and
+distributed systems is not directly covered". The true value is 2 of 7. Rule 5
+tells the model to compare skill tags as exact strings and to report counts, but
+nothing forces the count and the list to agree. Add to rule 5:
+
+```
+State a coverage count only alongside the covered skills named in full, and
+check that the number of names equals the number you stated. The covered and
+missing lists together must account for every skill the occupation has.
+```
+
+**N6. Step 8 says a two-program union covers 6 of 7 when it covers 5 of 7, and
+contradicts itself four lines later.** Same rule, same fix as N5 — a union count
+is a count. For the record the true figures are CS-BS ∪ IS-MS = 5 of 7 for Cloud
+Infrastructure Architects, with `containerization` **and** `infrastructure
+automation` uncovered. The reply's own later line states this correctly.
+
+**N7. Step 1's headline count contradicts its own list, in one run of two.**
+`services/orchestrator/prompts.py`, rule 5's counting sentence covers coverage
+tallies only. "Five of your advisees are clearly struggling" followed by nine
+named advisees, and "the remaining 15" when 25 − 9 = 16. The N5 wording above
+should be generalised past skills — put it in the Style paragraph instead:
+"Any count you state must equal the number of items you then name, and any
+remainder must equal the total minus that count."
+
+**N8. Step 7 guesses a program code before looking one up, two runs out of
+two.** Rows 2534 (`CBS`) and 2566 (`CYBERBS`). Harmless to correctness — the
+model recovers and the row is grey, not amber — but a grey error row lands on
+the audit page during the flagship step every time. One sentence in rule 5:
+"Program codes come from `list_programs_catalog`; call it before
+`get_course_outcomes` unless the exact code is already in front of you."
+
+**N9. Step 7 still cites the crosswalk as `[kuali]`.** Unchanged from run 1's
+N4. `get_program_occupation_map` is an mcp-labor tool (rows 2536, 2546). Rule 2:
+extend the `[labor]` definition to "…growth, and the program-to-occupation
+crosswalk". Covered by N3's rewrite if that sentence is added at the same time.
+
+**N10. Seed: noor's second section is one letter from the section the demo
+expects her to be refused.** `scripts/seed.py`, the `faculty_assignments`
+fixture. See section (g) above for the proposed swap and the alternative.
+
+**N11. Rule 6's narration ban has not taken on step 7.** `services/orchestrator/
+prompts.py`, the unnumbered block. The block's list of forbidden openings
+already contains "Now I have"; the model now opens with "Now I'll" and "Now let
+me" instead. Two options, in order of preference:
+
+1. Ban the token, not the phrase: replace the list of forbidden openings with
+   *"Your first sentence must state a finding: a name, a number, a tally, or a
+   refusal. A first sentence beginning with 'Now', 'Let me', 'I'll', 'First',
+   'I need', or 'It looks like' is wrong regardless of what follows it — delete
+   it and every sentence before your first finding."*
+2. Accept step 7's shape and make it presentable: the model reliably produces a
+   working block and then a delimited answer, so the block could be required to
+   come *after* the answer under a fixed heading.
+
+Option 1 is the boring one and matches what change 3 already proved works.
+
+---
+
+## Not re-reported
+
+Session 3 findings 9 and 10 (BUS-201-B's enrolment of three; the repeated
+Whitfield surname) remain declined. BUS-201-B still shows three students — and
+it did surface on a projector-visible slide this time, in step 5b run 1, which
+raises its stakes slightly; N10's seed swap removes it from the demo path
+anyway. No Whitfield student appeared in this run.
+
+Run 1's N6 (`services/mcp-kuali/rules.py` raising `refuse(INTERNAL_ERROR)`) is
+**closed** — line 114 now reads `raise ToolError(INTERNAL_ERROR) from exc` with
+a comment explaining why.
+
+## What to fix before the demo, in priority order
+
+1. **N2** — the closing-sentence ban in the shape block. Step 2 is the slide the
+   room judges, and all three asks end on an offer of per-student data.
+2. **N1** — `services/gateway/prompts.py`. Step 3a contradicts mcp-colleague on
+   two runs in three.
+3. **N3, N4, N9** — rule 2's marker definitions, one rewrite covering all three.
+   Step 5c is currently 100% mis-cited.
+4. **N5, N6, N7** — the counting constraint. Three separate wrong numbers in
+   this run, one of them on slide one.
+5. **N10** — `scripts/seed.py`, noor's second section.
+6. **N11** — rule 6's opening test, if step 7 reading as scratch paper for its
+   first 271 words is judged unacceptable. Step 8 already clears Session 3's
+   stated bar.
+7. **N8** — the program-code lookup order, whenever rule 5 is open anyway.
+
+## Audit row map
+
+| Rows | Step |
+|---|---|
+| 2442–2446 | 1, dana (run 1) |
+| 2447–2453 | 2, kim ask A |
+| 2454–2460 | 2, kim ask B |
+| 2461–2467 | 2, kim ask C |
+| 2468–2469 | 3a, pat |
+| 2470–2474 | 3b, pat |
+| 2475–2478 | 3a repeats |
+| 2479–2480 | 4, the bypass |
+| 2481–2492 | 5a/5b, noor run 1 |
+| 2493–2504 | 5a/5b, noor run 2 |
+| 2505–2516 | 5a/5b, noor run 3 |
+| 2517–2523 | 5c, kim |
+| 2524–2532 | 6, dana |
+| 2533–2542 | 7, kim (run 1) |
+| 2543–2559 | 8, kim |
+| 2560–2564 | 1, dana (repeat) |
+| 2565–2574 | 7, kim (repeat) |
+| 2575–2578 | direct tool-layer probes of the four spec-fixed strings |
+
+---
+
+# Session 3 verification — superseded by Session 4 above
 
 Run 2026-08-09 02:33:51–02:43:27 UTC by the demo-verifier agent, against the
 live compose stack with all ten services healthy. Nothing in the repository was
