@@ -32,6 +32,12 @@ from rules import (
 
 DB_PATH = Path(os.environ.get("COLLEAGUE_DB_PATH", "/data/colleague.db"))
 
+# "Quiet" means this many days since the last login, and it means it in both
+# places this server counts it: the advisee roster's quiet_count and the dean's
+# per-program percentage. One number, so an advisor's list and a dean's
+# aggregate can never be describing different thresholds.
+QUIET_AFTER_DAYS = 10
+
 # Stateless, deliberately. Beyond scaling cleanly, it is what makes per-request
 # authorization honest: a stateful session would let a tool run in the task
 # opened by whoever sent the *first* request, so the identity a tool sees could
@@ -70,9 +76,22 @@ class AdviseeRoster(BaseModel):
     here is a language model that has repeatedly worked it out wrong — "your 24
     advisees" and "your 23 advisees" about the same 25 people. The count is
     computed from the same list it ships with, so the two cannot disagree.
+
+    `flagged_count` and `quiet_count` are here for the same reason and one step
+    further in. The total was the number the model got wrong first; once the
+    total came from the tool it started getting the *subsets* wrong instead —
+    "eight of your advisees have flags" written directly above a list of nine,
+    three runs out of three. Those two subsets are the ones demo moment 1 opens
+    with, they are the same two the seed guards, and neither is a matter of
+    judgement: a flagged advisee is one with at least one term grade flag, and a
+    quiet one has not logged in for more than QUIET_AFTER_DAYS days. Both are
+    counted from the very rows this result ships, so a tally cannot disagree
+    with the list beneath it.
     """
 
     advisee_count: int
+    flagged_count: int
+    quiet_count: int
     advisees: list[Advisee]
 
 
@@ -283,7 +302,7 @@ async def healthz(request: object) -> JSONResponse:
 
 @mcp.tool()
 async def get_my_advisees(ctx: Context) -> AdviseeRoster:
-    """The advisees assigned to you, with current courses, GPA, days since last login, and any term grade flags. advisee_count is how many there are."""
+    """The advisees assigned to you, with current courses, GPA, days since last login, and any term grade flags. advisee_count is how many there are; flagged_count is how many carry at least one term grade flag; quiet_count is how many have not logged in for more than ten days."""
     claims = caller(ctx)
     async with audited("get_my_advisees", claims, {}):
         require_role(claims, "advisor", "get_my_advisees")
@@ -300,7 +319,12 @@ async def get_my_advisees(ctx: Context) -> AdviseeRoster:
                 term_grade_flags=grade_flags(student_id),
             ))
         advisees.sort(key=lambda a: a.student_id)
-        return AdviseeRoster(advisee_count=len(advisees), advisees=advisees)
+        return AdviseeRoster(
+            advisee_count=len(advisees),
+            flagged_count=sum(1 for a in advisees if a.term_grade_flags),
+            quiet_count=sum(1 for a in advisees if a.last_login_days > QUIET_AFTER_DAYS),
+            advisees=advisees,
+        )
 
 
 @mcp.tool()
@@ -331,9 +355,10 @@ async def get_program_summaries(ctx: Context) -> ProgramSummaries:
         require_role(claims, "dean", "get_program_summaries")
         rows = query(
             "SELECT p.code, p.name, COUNT(s.id) AS headcount, AVG(s.gpa) AS avg_gpa,"
-            " SUM(CASE WHEN s.last_login_days > 10 THEN 1 ELSE 0 END) AS quiet"
+            " SUM(CASE WHEN s.last_login_days > ? THEN 1 ELSE 0 END) AS quiet"
             " FROM programs p LEFT JOIN students s ON s.program_code = p.code"
-            " GROUP BY p.code, p.name ORDER BY p.code"
+            " GROUP BY p.code, p.name ORDER BY p.code",
+            QUIET_AFTER_DAYS,
         )
         programs = [ProgramSummary(
             program_code=row["code"],
