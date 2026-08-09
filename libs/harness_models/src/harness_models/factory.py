@@ -25,8 +25,21 @@ API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 ROUTER_MODEL = os.environ.get("ROUTER_MODEL", "deepseek-v4-flash")
 AGENT_MODEL = os.environ.get("AGENT_MODEL", "deepseek-v4-pro")
 
-# SPEC §1: non-thinking by default for BOTH models, because demo latency
-# matters. AGENT_THINKING=true flips both back on.
+# Extended-reasoning mode, one flag per model. ONE FLAG PER MODEL IS THE POINT:
+# a single flag governing both is how Session 10's A/B nearly measured one thing
+# and shipped another. That session ran the agent in reasoning mode by
+# recreating only the orchestrator, so the gateway's router kept the value it
+# was built with and stayed non-thinking — which is what the numbers describe.
+# With one shared flag, a later `docker compose up -d` would have put the router
+# into reasoning mode too, silently, and nobody would have been measuring that.
+#
+# SPEC §1 mandates non-thinking for both, and both ship that way. Session 11
+# tried the agent with reasoning ON and reverted it: it does remove the
+# arithmetic defect class (0 of 10 runs wrong, against 5 of 10), and it also
+# costs demo moment 5b its tool-layer refusal about half the time, because a
+# model that has already reasoned over the section list answers from the list
+# instead of calling the tool that would refuse. SPEC §1 and docs/LESSONS.md
+# entries 5 and 9 record both halves.
 #
 # The switch is DeepSeek's top-level `thinking` object — {"type": "enabled" |
 # "disabled"} — documented in the create-chat-completion request schema at
@@ -38,14 +51,25 @@ AGENT_MODEL = os.environ.get("AGENT_MODEL", "deepseek-v4-pro")
 # verbatim into the request body. Note there is no `openai_chat_extra_body`
 # setting despite what older snippets suggest; `extra_body` on the base
 # ModelSettings is the field.
-THINKING = os.environ.get("AGENT_THINKING", "false").strip().lower() in {"1", "true", "yes", "on"}
-
-MODEL_SETTINGS = ModelSettings(
-    extra_body={"thinking": {"type": "enabled" if THINKING else "disabled"}}
-)
+def _thinking(name: str, default: str) -> bool:
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _model(name: str) -> OpenAIChatModel:
+AGENT_THINKING = _thinking("AGENT_THINKING", "false")
+ROUTER_THINKING = _thinking("ROUTER_THINKING", "false")
+
+
+def _settings(thinking: bool) -> ModelSettings:
+    return ModelSettings(
+        extra_body={"thinking": {"type": "enabled" if thinking else "disabled"}}
+    )
+
+
+AGENT_SETTINGS = _settings(AGENT_THINKING)
+ROUTER_SETTINGS = _settings(ROUTER_THINKING)
+
+
+def _model(name: str, settings: ModelSettings) -> OpenAIChatModel:
     """One DeepSeek model client, settings baked in.
 
     Settings are attached to the model object rather than passed at each
@@ -55,18 +79,18 @@ def _model(name: str) -> OpenAIChatModel:
     return OpenAIChatModel(
         name,
         provider=OpenAIProvider(base_url=BASE_URL, api_key=API_KEY),
-        settings=MODEL_SETTINGS,
+        settings=settings,
     )
 
 
 def router_model() -> OpenAIChatModel:
-    """The gateway's triage model (SPEC §4.2)."""
-    return _model(ROUTER_MODEL)
+    """The gateway's triage model (SPEC §4.2). Reads ROUTER_THINKING only."""
+    return _model(ROUTER_MODEL, ROUTER_SETTINGS)
 
 
 def agent_model() -> OpenAIChatModel:
-    """The orchestrator's execution model (SPEC §4.3)."""
-    return _model(AGENT_MODEL)
+    """The orchestrator's execution model (SPEC §4.3). Reads AGENT_THINKING only."""
+    return _model(AGENT_MODEL, AGENT_SETTINGS)
 
 
 class UsageStats(BaseModel):

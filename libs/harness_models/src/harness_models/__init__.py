@@ -6,8 +6,11 @@ never build a model client yourself.
 
 from .factory import (
     AGENT_MODEL,
-    MODEL_SETTINGS,
+    AGENT_SETTINGS,
+    AGENT_THINKING,
     ROUTER_MODEL,
+    ROUTER_SETTINGS,
+    ROUTER_THINKING,
     UsageStats,
     agent_model,
     router_model,
@@ -16,8 +19,11 @@ from .factory import (
 
 __all__ = [
     "AGENT_MODEL",
-    "MODEL_SETTINGS",
+    "AGENT_SETTINGS",
+    "AGENT_THINKING",
     "ROUTER_MODEL",
+    "ROUTER_SETTINGS",
+    "ROUTER_THINKING",
     "UsageStats",
     "agent_model",
     "router_model",

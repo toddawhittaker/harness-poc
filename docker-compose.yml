@@ -62,7 +62,11 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       ROUTER_MODEL: ${ROUTER_MODEL:-deepseek-v4-flash}
-      AGENT_THINKING: ${AGENT_THINKING:-false}
+      # The gateway builds only the router, so only the router's flag is set
+      # here — AGENT_THINKING is not in this service's environment at all, and
+      # therefore cannot reach the router by any route. See the note on
+      # ROUTER_THINKING in libs/harness_models/factory.py.
+      ROUTER_THINKING: ${ROUTER_THINKING:-false}
     volumes:
       - ./services/gateway:/app/services/gateway
       - ./libs:/app/libs
@@ -98,6 +102,11 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       AGENT_MODEL: ${AGENT_MODEL:-deepseek-v4-pro}
+      # SPEC §1's default, and Session 11's certified configuration. Session 11
+      # ran the agent with reasoning on and reverted: the arithmetic gain was
+      # real, but the beat it cost is demo moment 5b's amber row. SPEC §1
+      # records the measurement. Set only here, on the one service that builds
+      # the agent, so it cannot reach the router by any route.
       AGENT_THINKING: ${AGENT_THINKING:-false}
     volumes:
       - ./services/orchestrator:/app/services/orchestrator

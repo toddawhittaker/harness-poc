@@ -197,6 +197,36 @@ A third thing it deliberately does not check: whether the marker on a given
 sentence is the *right* one among the servers that did run. That is citation
 accuracy, and a guard that guessed at it would start rewriting correct answers.
 
+**We lifted that third restriction once, in the one case where it involves no
+guessing, and the result is the most useful thing in this entry.** When exactly
+one server ran, every fact in the reply came from that server, so a marker
+naming a different one — or naming no server at all, like the `[cyb-bs
+outcomes]` one run produced — is wrong in a way the request itself settles. We
+made the guard rewrite those markers to the one server that answered, audit the
+rewrite, and return the reply instead of rejecting it. It worked exactly as
+designed: it fired seven times in ten runs of one demo beat, corrected every one
+correctly, and it revealed that the model mislabels one source as another far
+more often than anyone had realised — roughly twice in twelve requests.
+
+**And we reverted it, because of a second-order effect nobody predicted.** The
+guard's rejection had been doing a job nobody had written down. When it rejected
+a reply, the corrective retry told the model to *call a tool before writing
+anything* — and on the demo beat where a faculty member asks about a section she
+does not teach, that retry is what drove the tool call that produced the
+authorization refusal. Correcting the marker instead of rejecting the reply left
+the model's first answer standing, and its first answer was to say "that is not
+my section" from a roster it already had, without ever touching the boundary.
+The answer was correct and the refusal never happened, so the audit trail had
+nothing to show. The tool-layer refusal fell from a reliable event to about half
+of ten runs.
+
+**The lesson is about coupling, not about citations.** A guard that rejects work
+has two effects: it stops the bad output, and it makes the system try again.
+Anything downstream that depends on the retry is depending on the guard failing.
+We had built a demonstration of a security boundary on top of a citation check's
+willingness to reject, and could not see it until the check stopped rejecting.
+Before you soften any check, ask what stops happening when it stops firing.
+
 **Where.** Session 6, §2.1 (design and tests); Sessions 7–10 (the ledger).
 `services/orchestrator/grounding.py`, about a hundred lines, no dependencies
 beyond the standard library, tested against real transcripts of both good and
@@ -360,17 +390,43 @@ reply and the reply is shorter, cleaner and more accurate — at roughly a 50%
 latency cost, and with one new failure of its own (entry 5's citation check
 fired more often, and once declined).
 
+**What reasoning mode cost, measured a session later.** We chose reasoning mode
+on the table above and then ran the whole demonstration in it. The arithmetic
+gain held — three runs of the counting beat and three of the tallies beat, no
+wrong number in any of them. What we had not measured was the effect on
+*behaviour*: a model that has already reasoned over a list it fetched a moment
+ago tends to answer the next question from that list rather than call a tool
+again. On the beat where a faculty member asks about a section she does not
+teach, it answered "that is not my section" from the roster it already held and
+never made the call the tool server would have refused — so the refusal, and the
+audit record of it, stopped happening about half the time. We reverted to
+non-thinking and certified in that configuration.
+
+The final scoreboard, then, is a genuine trade rather than a winner. Reasoning
+off: the counting beat put two students in the wrong group and contradicted
+itself on screen, while every authorization refusal fired and was recorded.
+Reasoning on: the arithmetic was clean and the refusal went missing.
+
 **Where.** Sessions 5–9 for the defect class; Session 10 for the comparison;
-`DEMO_VERIFICATION.md` for the per-run detail.
+Session 11 for the behavioural cost and the reversion; `DEMO_VERIFICATION.md`
+for the per-run detail of both certification passes.
 
 **What the MVP should do.** Do not ask a model to do arithmetic that a tool can
 do. Every count, percentage, and overlap that an answer states should be a field
 in a tool result, computed from the rows being returned and defined once in code
-so the tool and any test agree on what it means. Where a derived number is
-unavoidable, budget for reasoning mode on that path and measure the latency
-against your interaction design — this is a per-workload decision, not a global
-setting, and it is cheap to measure once you can run the same question ten times
-and score the answers.
+so the tool and any test agree on what it means. Where the answer must place
+things in groups, ship the group membership too — the identifiers, not just the
+sizes — because a model given four correct counts will still sort by its own
+notion of severity and let that ordering overwrite the definitions.
+
+Where a derived number is unavoidable, budget for reasoning mode on that path
+and measure it — but measure more than accuracy and latency. Reasoning mode
+changes how eagerly a model calls tools, and if anything you care about depends
+on a call actually being made, that is the thing to put on the scoreboard. This
+is a per-workload decision, not a global setting, and the flag should be per
+model rather than one switch for the whole system: ours governed the router and
+the agent together until we separated them, which is one recreation of the wrong
+container away from measuring one configuration and shipping another.
 
 ---
 

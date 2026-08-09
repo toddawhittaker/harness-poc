@@ -17,7 +17,117 @@ fails the seed run if the shape above stops being true.
 
 ---
 
-# Session 9 verification — the current record
+# Session 11 verification — the current record, and the freeze certification
+
+Two full passes were run this session, in two different configurations, by the
+demo-verifier agent against the live compose stack with all ten services
+healthy. Steps 1, 2, 3, 5, 6, 7 and 8 were driven through the real Chainlit apps
+over socket.io with a real `POST /login`; step 4 ran `./scripts/demo_bypass.sh`
+unmodified. Both were measurement passes: nothing in the repository was changed
+during either.
+
+**The certified configuration is the second one — the committed state, with
+`AGENT_THINKING=false`. It passed 10 of 10.** The first pass ran an experimental
+configuration, failed one step, and that configuration was reverted.
+
+## Pass A — the experimental configuration, rows 6152–6272
+
+`AGENT_THINKING=true` on the orchestrator's agent, plus a scoped lift of
+`grounding.py`'s freeze: when exactly one MCP server ran and the reply's
+citation markers did not all name it, the markers were rewritten to that server
+and an `answer_marker_corrected` audit event was written, instead of the reply
+being rejected and regenerated.
+
+Nine of ten steps passed. **Step 5b failed its audit-row half.** The reply
+refused BUS-201-A by name and correctly, from `get_my_sections` alone — but no
+`get_section_engagement` call was made, so mcp-canvas never refused, and the
+amber row demo moment 9 points at did not exist for that turn. Rows 6180–6184
+are the complete turn and contain no refusal.
+
+A ten-run measurement of the same two-turn beat, rows 5968–6102, found the same
+thing at scale: **10 of 10 answered with zero declines and zero invented ids,
+but only 5 of 10 produced the tool-layer refusal.** Three of the five misses are
+directly attributable to the marker correction — in each, the reply cited
+`[colleague]` while only canvas had run, which under the committed guard would
+have been rejected and regenerated, and the regeneration is what historically
+forced the `get_section_engagement` call that produces the refusal. The other
+two misses had no correction and no guard grounds; they are the pre-existing
+form of the same failure.
+
+Everything else in pass A held: prompt cache 20 model calls with a minimum of
+896 hit tokens and none at zero; all four spec-fixed refusal strings verbatim at
+the tool layer; the faculty/dean asymmetry proven on the same `args_hash`; zero
+dropped events; `tools_used ⊆ tools_offered` on all ten `answer_returned` rows.
+One `answer_marker_corrected` fired inside the window (row 6187, step 5c,
+`["colleague"] → "canvas"`).
+
+Pass A is recorded because it measured something worth keeping: the agent
+mislabels Canvas data as Colleague often — twice in twelve requests — and on
+step 2, where two servers ran, the wrong attribution shipped with nothing to
+catch it.
+
+## Pass B — the certified configuration, rows 6401–6491
+
+`AGENT_THINKING=false`; `services/orchestrator/{grounding.py,app.py}`,
+`services/audit/viewer.html` and `tests/test_orchestrator_grounding.py` at their
+committed state. Run 2026-08-09 22:54:58–23:00:5xZ UTC. 91 rows: the ten-step
+script, then the tool-layer refusal probes (6481–6485), then the six
+independent no-token 401 probes (6486–6491).
+
+**Steps 1–10: 10 PASS, 0 FAIL.**
+
+| Step | Result | Note |
+|---|---|---|
+| 1 | PASS | All four counts stated and correct (25 / 9 / 8 / 6). Two students swapped between groups — see below |
+| 2 | PASS | Every aggregate figure exact, no student named. Visible model deliberation in the opening (W1) |
+| 3a / 3b | PASS / PASS | Courteous gate refusal with no tool call; all 12 occupations exact |
+| 4 | PASS | Grey `unoffered` row 6423, mcp-colleague refusal 6424 verbatim |
+| 5a | PASS | CYB-310-A resolved correctly, all eight students exact, `[canvas]` |
+| 5b | **PASS on both halves** | Refused by name, **and** the amber row exists: row **6433**, mcp-canvas, `decision: refused`, carrying the spec sentence verbatim |
+| 5c | PASS | All 18 rollup cells exact. Cites `[colleague]` for canvas columns (W2) |
+| 6 | PASS | Cleanest answer of the run; every seat count, prereq and credit figure exact |
+| 7 | PASS | **Zero arithmetic errors** across all eight occupation blocks and every skill enumeration |
+| 8 | PASS | Six distinct `get_course_outcomes` calls before any catalog-wide claim; all twelve tallies and both matrices correct |
+| 9 | PASS | Amber rows present for the gate refusal, the bypass, and 5b |
+| 10 | PASS | 401 at all six services independently, each writing its own `auth_failed` row |
+
+Standing checks, all green: 20 model calls, minimum `prompt_cache_hit_tokens`
+**896**, **zero** calls with zero hits; all four spec-fixed refusal strings
+verbatim at the tool layer (rows 6481–6484) plus the dean-side asymmetry (6485);
+**zero** dropped audit events in the window; `tools_used ⊆ tools_offered` on all
+ten `answer_returned` rows, every one carrying `unoffered_calls`; **zero**
+`answer_marker_corrected` rows; every student id, section id, course code,
+program code and SOC code resolves in a database.
+
+Guard ledger: two `answer_ungrounded` rows, both on pat's bypass (6420
+regenerating, 6421 declined), one regeneration, one decline. No other step
+tripped the guard.
+
+**The known weakness of this configuration, and where it landed.** Step 1's four
+counts are right and the reply does not overrule the tool, but two students are
+swapped: S-1045 (Emily Vaughn, last login today) is listed under "both flagged
+and quiet" and S-1054 (Zachary Hendricks, 25 days) under "flagged but logging in
+regularly" — and the reply contradicts itself on screen in both places, because
+it prints each student's real login gap beside the wrong heading. The verifier's
+diagnosis is that the model sorted by severity and let the ordering override the
+group definitions. It explicitly recommends **against** a seed change (moving
+S-1045's login gap would destroy the 25/9/8/6 quartet demo moment 1 exists for)
+and proposes instead that `get_my_advisees` return the three membership id lists
+beside the counts it already returns, so the model transcribes rather than
+re-derives. Not built; recorded as the proposal.
+
+Two presentation warts, neither a spec violation: **W1**, Kim's step-2 reply
+opens with four sentences of visible model deliberation including a broken
+half-sentence, on the beat where the room is meant to be watching role scoping;
+**W2**, step 5c signs a table whose login and missing-submission columns come
+from mcp-canvas with `[colleague]` throughout, on the slide whose argument is
+that the harness joins independent sources.
+
+This section supersedes the Session 9 record below it.
+
+---
+
+# Session 9 verification — superseded by Session 11 above
 
 Run 2026-08-09 20:15:36–20:19:26 UTC by the demo-verifier agent, against the
 live compose stack with all ten services healthy. Steps 1, 2, 3, 5, 6, 7 and 8

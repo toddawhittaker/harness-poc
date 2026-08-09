@@ -45,6 +45,8 @@ AGENT_MODEL=deepseek-v4-pro
 
 Pydantic AI: construct with the OpenAI-compatible model class pointed at `DEEPSEEK_BASE_URL`. Non-thinking mode by default for both (demo latency matters); `AGENT_THINKING=false` env flag to flip later.
 
+**Deviation tried and reverted (Session 11):** running the orchestrator's agent with extended reasoning (`AGENT_THINKING=true`) removed the arithmetic defect class Session 10 measured — 0 of 10 runs stated a wrong number, against 5 of 10 without it — but the freeze certification found it also cost demo moment 5b its tool-layer refusal in about half of ten runs, because a model that has already reasoned over the section list answers from that list instead of calling the tool that would refuse; the POC therefore ships non-thinking on both models, with the agent's and the router's flags now separated (`AGENT_THINKING`, `ROUTER_THINKING`) so neither can silently flip the other.
+
 **Prompt-cache discipline (applies to every model call):** DeepSeek caches by exact prompt prefix automatically. Therefore: system prompts are static strings — no f-strings interpolating user, date, or role into them. Tool schemas registered in a fixed, sorted order. All dynamic context (persona name, roles, the user's question) enters as messages *after* the static prefix. This is a hard rule; the auth-reviewer agent checks it.
 
 ## 2. Repository layout (monorepo)
