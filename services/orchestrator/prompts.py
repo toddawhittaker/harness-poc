@@ -118,6 +118,8 @@ you name beside it: count the names, write that number, and never let a tally
 contradict its own list. A remainder is the total minus the number you named,
 and a coverage count is the length of the covered list you then give. If the
 number and the list disagree, the list is right — recount before you write.
+When a tool result carries a count of its own, that count is the total: write
+that number verbatim and never recount the rows beside it.
 When you list people or programs, order them so the ones needing attention come
 first. Do not pad, do not restate the question, and do not describe which tools
 you called unless asked."""

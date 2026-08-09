@@ -63,6 +63,19 @@ class Advisee(BaseModel):
     term_grade_flags: list[str]
 
 
+class AdviseeRoster(BaseModel):
+    """The roster, with its size stated rather than left to be counted.
+
+    A bare list makes the total something the reader works out, and the reader
+    here is a language model that has repeatedly worked it out wrong — "your 24
+    advisees" and "your 23 advisees" about the same 25 people. The count is
+    computed from the same list it ships with, so the two cannot disagree.
+    """
+
+    advisee_count: int
+    advisees: list[Advisee]
+
+
 class StudentSummary(BaseModel):
     student_id: str
     name: str
@@ -80,6 +93,17 @@ class ProgramSummary(BaseModel):
     headcount: int
     avg_gpa: float
     pct_quiet_over_10_days: float
+
+
+class ProgramSummaries(BaseModel):
+    """Per-program aggregates, with the number of programs stated.
+
+    Same reason as AdviseeRoster: "none of the six programs" said two sentences
+    after a tally of four is a sentence the model composed rather than read.
+    """
+
+    program_count: int
+    programs: list[ProgramSummary]
 
 
 class EnrollmentTrend(BaseModel):
@@ -117,6 +141,14 @@ class NextTermOption(BaseModel):
     prereqs: list[str]
     offered_next_term: bool
     seats: int | None
+    # Why this course is open, in the tool's own words: the prerequisites that
+    # were satisfied, with the term each was completed in and the grade. A
+    # blocked option already states its blocker, so without this an open option
+    # was the only thing in the result with no stated reason — and a model
+    # reading silence as absence is what made demo moment 6 assert that a
+    # completed prerequisite had not been completed. The licence is now stated
+    # beside the option, from the same rows the eligibility test read.
+    open_because: str
 
 
 class NextTermOptions(BaseModel):
@@ -167,9 +199,17 @@ def prereqs_for(course_code: str) -> list[str]:
                   course_code)]
 
 
-def completed_grades(student_id: str) -> dict[str, str]:
-    return {row["course_code"]: row["grade"] for row in
-            query("SELECT course_code, grade FROM completed_courses WHERE student_id = ?", student_id)}
+def completed_grades(student_id: str) -> dict[str, tuple[str, str]]:
+    """Course code → (term completed, grade), for everything already finished.
+
+    The term comes along with the grade because `get_next_term_options` states
+    why each option is open, and "CS-320 completed 2025SP (C)" is a fact an
+    advisor can check against the transcript in front of them. Reading the
+    grade without the term would make the sentence unverifiable.
+    """
+    return {row["course_code"]: (row["term"], row["grade"]) for row in
+            query("SELECT course_code, term, grade FROM completed_courses WHERE student_id = ?",
+                  student_id)}
 
 
 def requirement_progress(student_id: str, program_code: str) -> list[RequirementProgress]:
@@ -201,11 +241,24 @@ def requirement_progress(student_id: str, program_code: str) -> list[Requirement
             sequence=row["sequence"],
             completed=row["course_code"] in done,
             in_progress=row["course_code"] in now and row["course_code"] not in done,
-            grade=done.get(row["course_code"]),
+            grade=done[row["course_code"]][1] if row["course_code"] in done else None,
             prereqs=prereqs,
             prereqs_satisfied=all(code in done for code in prereqs),
         ))
     return progress
+
+
+def open_because(prereqs: list[str], done: dict[str, tuple[str, str]]) -> str:
+    """The sentence a next-term option carries about why it is open.
+
+    Only ever called for an option whose prereqs are all satisfied, so every
+    code here is in `done`; a missing one would be a fault in the eligibility
+    test above rather than something to paper over, and KeyError says so.
+    """
+    if not prereqs:
+        return "open: no prerequisites"
+    met = ", ".join(f"{code} completed {done[code][0]} ({done[code][1]})" for code in prereqs)
+    return f"open: prereq{'s' if len(prereqs) > 1 else ''} {met}"
 
 
 def next_term() -> str:
@@ -229,8 +282,8 @@ async def healthz(request: object) -> JSONResponse:
 
 
 @mcp.tool()
-async def get_my_advisees(ctx: Context) -> list[Advisee]:
-    """The advisees assigned to you, with current courses, GPA, days since last login, and any term grade flags."""
+async def get_my_advisees(ctx: Context) -> AdviseeRoster:
+    """The advisees assigned to you, with current courses, GPA, days since last login, and any term grade flags. advisee_count is how many there are."""
     claims = caller(ctx)
     async with audited("get_my_advisees", claims, {}):
         require_role(claims, "advisor", "get_my_advisees")
@@ -246,7 +299,8 @@ async def get_my_advisees(ctx: Context) -> list[Advisee]:
                 current_courses=current_courses(student_id),
                 term_grade_flags=grade_flags(student_id),
             ))
-        return sorted(advisees, key=lambda a: a.student_id)
+        advisees.sort(key=lambda a: a.student_id)
+        return AdviseeRoster(advisee_count=len(advisees), advisees=advisees)
 
 
 @mcp.tool()
@@ -270,8 +324,8 @@ async def get_student_summary(student_id: str, ctx: Context) -> StudentSummary:
 
 
 @mcp.tool()
-async def get_program_summaries(ctx: Context) -> list[ProgramSummary]:
-    """Per-program aggregates: headcount, average GPA, and the share of students who have not logged in for over ten days."""
+async def get_program_summaries(ctx: Context) -> ProgramSummaries:
+    """Per-program aggregates: headcount, average GPA, and the share of students who have not logged in for over ten days. program_count is how many programs there are."""
     claims = caller(ctx)
     async with audited("get_program_summaries", claims, {}):
         require_role(claims, "dean", "get_program_summaries")
@@ -281,7 +335,7 @@ async def get_program_summaries(ctx: Context) -> list[ProgramSummary]:
             " FROM programs p LEFT JOIN students s ON s.program_code = p.code"
             " GROUP BY p.code, p.name ORDER BY p.code"
         )
-        return [ProgramSummary(
+        programs = [ProgramSummary(
             program_code=row["code"],
             program_name=row["name"],
             headcount=row["headcount"] or 0,
@@ -289,6 +343,7 @@ async def get_program_summaries(ctx: Context) -> list[ProgramSummary]:
             pct_quiet_over_10_days=round(100.0 * (row["quiet"] or 0) / row["headcount"], 1)
             if row["headcount"] else 0.0,
         ) for row in rows]
+        return ProgramSummaries(program_count=len(programs), programs=programs)
 
 
 @mcp.tool()
@@ -327,13 +382,14 @@ async def get_student_degree_progress(student_id: str, ctx: Context) -> DegreePr
 
 @mcp.tool()
 async def get_next_term_options(student_id: str, ctx: Context) -> NextTermOptions:
-    """Remaining required courses whose prerequisites the student has met, flagged by which are offered next term."""
+    """Remaining required courses whose prerequisites the student has met, flagged by which are offered next term. Each open option states in open_because which prerequisites were satisfied, with the term completed and the grade."""
     claims = caller(ctx)
     async with audited("get_next_term_options", claims, {"student_id": student_id}):
         require_advisor_for_record(claims, "get_next_term_options")
         require_assignment(claims, student_id, advisee_ids(claims.sub))
         row = student_row(student_id)
         term = next_term()
+        done = completed_grades(student_id)
         offered = {schedule["course_code"]: schedule["seats"] for schedule in
                    query("SELECT course_code, seats FROM next_term_schedule WHERE term = ?", term)}
 
@@ -364,6 +420,7 @@ async def get_next_term_options(student_id: str, ctx: Context) -> NextTermOption
                 prereqs=item.prereqs,
                 offered_next_term=item.course_code in offered,
                 seats=offered.get(item.course_code),
+                open_because=open_because(item.prereqs, done),
             ))
         return NextTermOptions(
             student_id=row["id"], name=row["name"], program=row["program_code"],
