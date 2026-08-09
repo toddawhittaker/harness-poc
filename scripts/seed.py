@@ -346,6 +346,40 @@ NOT_DANAS_ADVISEE = "S-1044"
 # small enough to name out loud.
 DANA_QUIET_IDS = ["S-1031", "S-1035", "S-1038", "S-1043", "S-1047", "S-1049", "S-1052", "S-1054"]
 
+# Quiet and flagged used to be the same eight people. flagged_courses() flags
+# anyone over the quiet threshold, so every quiet advisee was also flagged,
+# "quiet but unflagged" was empty, and get_my_advisees returned
+# quiet_count 8 and flagged_and_quiet_count 8 — two numbers naming one set.
+# Demo moment 1's opening sentence therefore had three facts to state and a
+# fourth that only restated the third, which is very likely why the model kept
+# stating three and padding with a non-sequitur (Session 9 §4.3).
+#
+# So the nesting is broken here, in the data, rather than argued with in a
+# prompt. Two of the eight quiet advisees carry no flag, and two advisees who
+# log in regularly carry one, which holds the headline at 25 / 9 / 8 and makes
+# the fourth count 6 — four distinct facts:
+#
+#   25 advisees, 9 flagged, 8 quiet, 6 both
+#   + 2 quiet with no flag raised yet   <- the category an advisor most wants
+#   + 3 flagged while still showing up
+#
+# Both sets are ids after S-1042 deliberately. Flag writing draws from the
+# random stream, so a student who gains or loses a flag resequences everyone
+# seeded after them; S-1042's near-complete record is load-bearing for the demo
+# casting and must not move (see verify()).
+#
+# Quiet, and no flag has been raised: S-1049 (GPA 1.94, 21 days) and S-1052
+# (GPA 2.28, 23 days). Their GPAs already justify an advisor's attention, and
+# the absence of a term flag is the point — nobody has noticed yet.
+DANA_QUIET_UNFLAGGED = ["S-1049", "S-1052"]
+
+# Flagged while still logging in: S-1048 (GPA 2.79, 3 days) and S-1051
+# (GPA 3.02, 4 days). One course going wrong for a student who is still
+# showing up, which is why they take one flag rather than two. With S-1045
+# (GPA 2.44, logged in today) they make three, so "flagged" and "quiet" are
+# visibly different questions in both directions.
+DANA_FLAGGED_WHILE_ACTIVE = ["S-1048", "S-1051"]
+
 # Hand-tuned transcripts, so the next-term answers are crisp instead of mushy.
 # Everyone else's completed courses are generated.
 HANDMADE_TRANSCRIPTS: dict[str, tuple[str, list[str]]] = {
@@ -522,7 +556,15 @@ def flagged_courses(student: dict, current: list[str]) -> list[str]:
 
     A student sitting out the term carries no flags: there is no registration
     to hang one on.
+
+    The two hand-cast exceptions come first, because they are what stops
+    "quiet" and "flagged" from being the same question — see
+    DANA_QUIET_UNFLAGGED above.
     """
+    if student["id"] in DANA_QUIET_UNFLAGGED:
+        return []
+    if student["id"] in DANA_FLAGGED_WHILE_ACTIVE:
+        return current[:1]
     if student["last_login_days"] > QUIET_AFTER_DAYS or student["gpa"] < STRUGGLING_GPA:
         return current[:2]
     return []
@@ -833,20 +875,56 @@ def verify(state: dict[str, dict]) -> None:
     flagged = [s for s in dana_advisees if flagged_courses(s, s["current"])]
     assert len(flagged) == 9, f"expected 9 flagged advisees for dana, got {len(flagged)}"
 
-    # The intersection, which get_my_advisees now returns as
-    # flagged_and_quiet_count. Every quiet advisee is also flagged in the
-    # current cast — flagged_courses() flags anyone over the quiet threshold —
-    # so this equals the quiet count and the ninth flagged student (S-1045, low
-    # GPA, logs in) is the one who is flagged without being quiet. Pinned at 8
-    # because demo moment 1's opening sentence reads all three counts out, and a
-    # cast where the two sets stopped nesting would change what that sentence
-    # means without changing any number in it.
+    # The intersection, which get_my_advisees returns as
+    # flagged_and_quiet_count. Pinned at 6, not 8: the two sets deliberately no
+    # longer nest, so this count says something the quiet count does not. Demo
+    # moment 1's opening sentence reads four numbers out and they have to be
+    # four facts — 25 advisees, 9 flagged, 8 quiet, 6 both. If this reads 8
+    # again, every quiet advisee is flagged once more and the fourth number is
+    # back to restating the third.
     flagged_and_quiet = [s for s in dana_advisees
                          if flagged_courses(s, s["current"])
                          and s["last_login_days"] > QUIET_AFTER_DAYS]
-    assert len(flagged_and_quiet) == 8, (
-        f"expected 8 advisees both flagged and quiet, got {len(flagged_and_quiet)}"
+    assert len(flagged_and_quiet) == 6, (
+        f"expected 6 advisees both flagged and quiet, got {len(flagged_and_quiet)}"
     )
+
+    # The category the whole change exists to create: quiet before anyone
+    # raised a flag. Two of them, and they must be genuinely quiet and
+    # genuinely unflagged, or demo moment 1 gains a heading with nobody under
+    # it. Asserted by counting the seeded result rather than by trusting
+    # DANA_QUIET_UNFLAGGED, because the list is the intent and this is the
+    # outcome.
+    quiet_unflagged = [s for s in quiet if not flagged_courses(s, s["current"])]
+    assert len(quiet_unflagged) == 2, (
+        f"expected 2 quiet advisees carrying no term grade flag, got "
+        f"{len(quiet_unflagged)}: {[s['id'] for s in quiet_unflagged]}"
+    )
+    assert {s["id"] for s in quiet_unflagged} == set(DANA_QUIET_UNFLAGGED), (
+        f"the quiet-and-unflagged advisees are {sorted(s['id'] for s in quiet_unflagged)}, "
+        f"not {sorted(DANA_QUIET_UNFLAGGED)}"
+    )
+
+    # ...and the other side of the break: advisees who carry a flag while still
+    # logging in. Three of them, and none may be quiet, or the two sets start
+    # nesting again from the other direction.
+    flagged_active = [s for s in flagged if s["last_login_days"] <= QUIET_AFTER_DAYS]
+    assert len(flagged_active) == 3, (
+        f"expected 3 flagged advisees who are still logging in, got "
+        f"{len(flagged_active)}: {[s['id'] for s in flagged_active]}"
+    )
+    for sid in DANA_QUIET_UNFLAGGED + DANA_FLAGGED_WHILE_ACTIVE:
+        assert sid in set(DANA_ADVISEE_IDS), f"{sid} is not one of dana's advisees"
+    for sid in DANA_FLAGGED_WHILE_ACTIVE:
+        assert state[sid]["last_login_days"] <= QUIET_AFTER_DAYS, (
+            f"{sid} is meant to be flagged *while active* and has gone quiet"
+        )
+        assert flagged_courses(state[sid], state[sid]["current"]), (
+            f"{sid} is meant to carry a flag and carries none; a student with no "
+            "current registration has nothing to hang one on"
+        )
+    for sid in DANA_QUIET_UNFLAGGED:
+        assert sid in set(DANA_QUIET_IDS), f"{sid} is meant to be one of the quiet tail"
 
     # The RBAC refusal needs a seeded student inside dana's id range who is not
     # hers, or the test proves "no such student" instead of "not your advisee".
@@ -1047,6 +1125,10 @@ def verify(state: dict[str, dict]) -> None:
     print(f"  dana advises {len(dana_advisees)}, of whom {len(flagged)} carry a term grade "
           f"flag and {len(quiet)} have not logged in for >{QUIET_AFTER_DAYS} days")
     print(f"    both flagged and quiet: {len(flagged_and_quiet)}")
+    print(f"    quiet with no flag raised: {len(quiet_unflagged)} "
+          f"({', '.join(sorted(s['id'] for s in quiet_unflagged))})")
+    print(f"    flagged while still logging in: {len(flagged_active)} "
+          f"({', '.join(sorted(s['id'] for s in flagged_active))})")
     print(f"  program spread: GPA {gpa_spread:.2f}, quiet share {quiet_spread:.1f} points")
     for code in sorted(per_program):
         print(f"    {code:7} avg GPA {per_program[code][0]:.2f}, quiet {per_program[code][1]:.1f}%")

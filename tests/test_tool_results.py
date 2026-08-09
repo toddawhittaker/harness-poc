@@ -232,7 +232,10 @@ def test_the_advisee_roster_counts_the_students_who_are_both(
         f"{len(both)} advisees who are both flagged and quiet"
     )
     # Zero would satisfy the equality while telling the demo nothing.
-    # scripts/seed.py::verify pins this at 8 — every quiet advisee is flagged.
+    # scripts/seed.py::verify pins this at 6. It used to be 8, because every
+    # quiet advisee was also flagged; the seed now leaves two of the eight
+    # quiet advisees unflagged so this count says something quiet_count does
+    # not, and demo moment 1's four numbers are four facts.
     assert payload["flagged_and_quiet_count"] > 0, (
         "no advisee is both flagged and quiet, so the sentence this count exists "
         "for has nothing to say; check scripts/seed.py"
