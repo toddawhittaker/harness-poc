@@ -9,11 +9,28 @@ covered by SPEC.md, and decide in its spirit; for the POC, SPEC.md always wins.
 
 - run all: docker compose up --build
 - seed:    uv run scripts/seed.py
+           then: docker compose restart mcp-colleague mcp-canvas mcp-kuali mcp-labor
+           The servers hold the deleted database file open until they are
+           restarted, so without this you keep reading the old data.
 - tests:   uv run pytest tests/ -x -q   (stack must be running)
 - one svc: docker compose up gateway --build
-- pre-demo: docker compose logs audit gateway | tail -20
-Expect NO "audit event ... dropped" lines. One means the audit page
-will be empty during demo moment 9; the line names the bad URL.
+- pre-demo: docker compose logs --since 30m 2>&1 | grep "dropped" || echo "clean"
+Expect "clean". Run it AFTER the test suite, never during: the disruptive
+test stops the audit service on purpose, so a run within 30 minutes of the
+suite shows an expected auth_failed drop from the gateway. Anything else
+means demo moment 9's audit page will be missing rows; the line names the
+service and the URL that failed. Drops are debounced to once a minute per
+process, so one line can stand for several lost events.
+
+## Deploy (LXC, tunnel profile)
+
+git pull && docker compose --profile tunnel up -d
+
+Set real values for CHAINLIT_AUTH_SECRET_ADVISOR and CHAINLIT_AUTH_SECRET_EXEC
+in .env on the LXC. The built-in defaults are fine on localhost and nowhere
+else: they sign each Chainlit app's session cookie, and a public tunnel plus a
+published cookie secret is a forgeable login. They have no bearing on the
+harness JWTs, which identity-stub signs with RS256.
 
 ## Hard rules
 
