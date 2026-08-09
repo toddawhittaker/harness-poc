@@ -16,6 +16,9 @@ Each field here exists because a demo answer went wrong without it:
     advisees" about 25 people, "none of the six programs" two sentences after a
     tally of four. Each count is computed from the very list it ships with, so
     the number and the list cannot disagree.
+  * `flagged_count` and `quiet_count` on the advisee roster — the same fault one
+    level in. Once the total came from the tool, the subsets went wrong in its
+    place: "eight of your advisees have flags" above a list of nine.
 
 They run against the live stack with real tokens, like everything else here.
 """
@@ -41,6 +44,11 @@ STEP_6_STUDENT = "S-1055"
 # about whether the term is stated at all.
 TERM = re.compile(r"\b20\d{2}(SP|SU|FA)\b")
 GRADE = re.compile(r"\(([A-D][+-]?)\)")
+
+# What "quiet" means, matching QUIET_AFTER_DAYS in services/mcp-colleague/app.py.
+# Written out rather than imported: this workspace does not install the server's
+# dependencies, and every other test here reaches the servers over MCP too.
+QUIET_AFTER_DAYS = 10
 
 
 def structured(text: str) -> dict[str, Any]:
@@ -140,6 +148,65 @@ def test_the_advisee_roster_states_how_many_advisees_it_holds(
         f"{len(payload['advisees'])} advisees beside it"
     )
     assert payload["advisee_count"] > 0, "dana's roster came back empty; check scripts/seed.py"
+
+
+def dana_roster(token: str) -> dict[str, Any]:
+    with mcp_session(MCP_SERVERS["mcp-colleague"], token) as session:
+        result = session.call_tool("get_my_advisees", {})
+    assert not result.refused, f"dana holds the advisor role and must be served: {result.text[:300]}"
+    return structured(result.text)
+
+
+@pytest.mark.session2
+def test_the_advisee_roster_counts_its_own_flagged_students(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """The tally demo moment 1 opens with, counted by the tool.
+
+    advisee_count closed the total; the subset then went wrong in its place —
+    "eight of your advisees have flags" written above a list of nine, three runs
+    out of three.
+    """
+    payload = dana_roster(token_for("dana"))
+    assert "flagged_count" in payload, (
+        f"get_my_advisees must state flagged_count: {sorted(payload)}"
+    )
+    flagged = [a for a in payload["advisees"] if a["term_grade_flags"]]
+    assert payload["flagged_count"] == len(flagged), (
+        f"flagged_count {payload['flagged_count']} disagrees with the {len(flagged)} "
+        "advisees carrying a term grade flag"
+    )
+    # Zero would satisfy the equality above while telling the demo nothing.
+    # scripts/seed.py::verify pins this at 9.
+    assert payload["flagged_count"] > 0, (
+        "demo moment 1 opens with this tally and no advisee is flagged; check "
+        "scripts/seed.py"
+    )
+
+
+@pytest.mark.session2
+def test_the_advisee_roster_counts_its_own_quiet_students(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """The other half of demo moment 1's opening sentence.
+
+    "Quiet" is more than QUIET_AFTER_DAYS days since the last login, the same
+    threshold the dean's per-program percentage uses.
+    """
+    payload = dana_roster(token_for("dana"))
+    assert "quiet_count" in payload, (
+        f"get_my_advisees must state quiet_count: {sorted(payload)}"
+    )
+    quiet = [a for a in payload["advisees"] if a["last_login_days"] > QUIET_AFTER_DAYS]
+    assert payload["quiet_count"] == len(quiet), (
+        f"quiet_count {payload['quiet_count']} disagrees with the {len(quiet)} advisees "
+        f"who have not logged in for more than {QUIET_AFTER_DAYS} days"
+    )
+    # scripts/seed.py::verify pins this at 8.
+    assert payload["quiet_count"] > 0, (
+        "demo moment 1 depends on a visible quiet tail and there is none; check "
+        "scripts/seed.py"
+    )
 
 
 @pytest.mark.session2

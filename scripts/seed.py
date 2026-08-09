@@ -287,6 +287,38 @@ LAST_NAMES = [
 N_STUDENTS = 300
 FIRST_STUDENT_ID = 1001
 
+# What "quiet" means, and what "struggling enough to flag" means. Both match
+# services/mcp-colleague/app.py, which counts quiet advisees with the same
+# threshold; a seed that disagreed with the server would put a number in the
+# guard that the tool never returns.
+QUIET_AFTER_DAYS = 10
+STRUGGLING_GPA = 2.5
+
+# Programs do not all look alike, and until now they did. The dean's opening
+# figures spanned 3.00 to 3.17 average GPA and 2.3% to 9.1% quiet, five of six
+# inside a single point, so demo moment 2's answer had nothing to lead with
+# until it reached Canvas — the verifier proposed widening this in Sessions 5, 6
+# and 7. Each program now draws its GPA around its own mean and carries its own
+# share of quiet students, so the system of record has a story of its own:
+# Business Administration is visibly the program in trouble, Data Analytics
+# visibly the healthy one, and the four in between are the middle they were
+# always meant to be.
+#
+# program_code -> (mean GPA, percentage of students quiet for over ten days)
+PROGRAM_PROFILE: dict[str, tuple[float, int]] = {
+    "BUS-BS": (2.80, 19),
+    "HIM-BS": (3.05, 11),
+    "CS-BS": (3.15, 6),
+    "IS-MS": (3.15, 6),
+    "CYB-BS": (3.15, 6),
+    "DAT-MS": (3.30, 2),
+}
+
+# The spread the dean's answer needs, asserted rather than hoped for. Below
+# these the programs blur back together and demo moment 2 has no headline.
+MIN_GPA_SPREAD = 0.3
+MIN_QUIET_SPREAD_PCT = 10.0
+
 # Dana advises a block with S-1044 deliberately punched out of the middle, and
 # S-1042 inside it because demo moment 6 asks about that student by name.
 #
@@ -420,12 +452,16 @@ def make_students() -> list[dict]:
         first, last = pairs[i]
         program = HANDMADE_TRANSCRIPTS.get(sid, (None, None))[0] or random.choice(program_codes)
 
-        gpa = round(min(4.0, max(1.6, random.gauss(3.15, 0.45))), 2)
-        # Mostly current; a thin tail of quiet students across the population so
-        # the dean's "% inactive" aggregate is not zero.
+        mean_gpa, quiet_pct = PROGRAM_PROFILE[program]
+        gpa = round(min(4.0, max(1.6, random.gauss(mean_gpa, 0.45))), 2)
+        # Mostly current; a tail of quiet students whose size is the program's
+        # own, so the dean's "% inactive" aggregate separates the programs
+        # instead of reporting the same number six times. The three draws happen
+        # either way and only the weights differ, which keeps the random stream
+        # in step with every earlier seed run.
         last_login = random.choices(
             [random.randint(0, 5), random.randint(6, 9), random.randint(10, 26)],
-            weights=[78, 16, 6],
+            weights=[100 - 16 - quiet_pct, 16, quiet_pct],
         )[0]
 
         students.append({
@@ -462,6 +498,22 @@ def completed_for(student: dict) -> list[str]:
     # Progress through the sequence in order, so prereq chains stay coherent.
     taken = random.randint(0, len(sequence) - 2)
     return sequence[:taken]
+
+
+def flagged_courses(student: dict, current: list[str]) -> list[str]:
+    """Which of this term's registrations carry a term grade flag.
+
+    One definition, used by the writer and by verify(), because
+    `get_my_advisees` now returns `flagged_count` and demo moment 1 opens by
+    reading it out. A guard that counted flagged students by a different rule
+    than the one that wrote them would be checking nothing.
+
+    A student sitting out the term carries no flags: there is no registration
+    to hang one on.
+    """
+    if student["last_login_days"] > QUIET_AFTER_DAYS or student["gpa"] < STRUGGLING_GPA:
+        return current[:2]
+    return []
 
 
 def prereqs_met(code: str, completed: set[str]) -> bool:
@@ -569,10 +621,9 @@ def seed_colleague(students: list[dict]) -> dict[str, dict]:
 
         # Struggling students carry visible flags — this is what "seem to be
         # struggling" resolves to when the advisor asks.
-        if student["last_login_days"] > 10 or student["gpa"] < 2.5:
-            for code in current[:2]:
-                c.execute("INSERT INTO term_grade_flags VALUES (?,?,?)",
-                          (student["id"], code, random.choice(GRADE_FLAG_TEXT)))
+        for code in flagged_courses(student, current):
+            c.execute("INSERT INTO term_grade_flags VALUES (?,?,?)",
+                      (student["id"], code, random.choice(GRADE_FLAG_TEXT)))
 
         state[student["id"]] = {**student, "completed": completed, "current": current}
 
@@ -761,8 +812,14 @@ def verify(state: dict[str, dict]) -> None:
 
     dana_advisees = [state[sid] for sid in DANA_ADVISEE_IDS]
     assert len(dana_advisees) == 25, "dana must advise exactly 25 students"
-    quiet = [s for s in dana_advisees if s["last_login_days"] > 10]
+    quiet = [s for s in dana_advisees if s["last_login_days"] > QUIET_AFTER_DAYS]
     assert len(quiet) == 8, f"expected 8 quiet advisees for dana, got {len(quiet)}"
+
+    # get_my_advisees now returns flagged_count and quiet_count, and demo moment
+    # 1 opens by reading both out. Counted here with the same rule that wrote
+    # the flags, so the guard and the tool cannot mean different things.
+    flagged = [s for s in dana_advisees if flagged_courses(s, s["current"])]
+    assert len(flagged) == 9, f"expected 9 flagged advisees for dana, got {len(flagged)}"
 
     # The RBAC refusal needs a seeded student inside dana's id range who is not
     # hers, or the test proves "no such student" instead of "not your advisee".
@@ -878,9 +935,42 @@ def verify(state: dict[str, dict]) -> None:
     for skill in DELIBERATELY_UNTAUGHT:
         assert skill not in all_taught, f"{skill!r} was supposed to stay untaught"
 
+    # Demo moment 2: the dean's opening figures have to separate the programs on
+    # the record's own numbers, not only on Canvas engagement. These are the
+    # exact two columns get_program_summaries returns.
+    per_program = {}
+    for code, _name, _cip, _level in PROGRAMS:
+        cohort = [s for s in state.values() if s["program_code"] == code]
+        assert cohort, f"{code} has no students"
+        per_program[code] = (
+            round(sum(s["gpa"] for s in cohort) / len(cohort), 2),
+            round(100.0 * sum(1 for s in cohort
+                              if s["last_login_days"] > QUIET_AFTER_DAYS) / len(cohort), 1),
+        )
+    gpas = {code: figures[0] for code, figures in per_program.items()}
+    quiets = {code: figures[1] for code, figures in per_program.items()}
+    gpa_spread = max(gpas.values()) - min(gpas.values())
+    quiet_spread = max(quiets.values()) - min(quiets.values())
+    assert gpa_spread >= MIN_GPA_SPREAD, (
+        f"average GPA spans only {gpa_spread:.2f} across the programs "
+        f"({min(gpas, key=gpas.get)} {min(gpas.values()):.2f} to "
+        f"{max(gpas, key=gpas.get)} {max(gpas.values()):.2f}); demo moment 2 needs at "
+        f"least {MIN_GPA_SPREAD}. Widen PROGRAM_PROFILE."
+    )
+    assert quiet_spread >= MIN_QUIET_SPREAD_PCT, (
+        f"the quiet share spans only {quiet_spread:.1f} points across the programs "
+        f"({min(quiets, key=quiets.get)} {min(quiets.values()):.1f}% to "
+        f"{max(quiets, key=quiets.get)} {max(quiets.values()):.1f}%); demo moment 2 needs "
+        f"at least {MIN_QUIET_SPREAD_PCT}. Widen PROGRAM_PROFILE."
+    )
+
     ds = by_title["Data Scientists"]
     print("verified:")
-    print(f"  dana advises {len(dana_advisees)}, of whom {len(quiet)} have not logged in for >10 days")
+    print(f"  dana advises {len(dana_advisees)}, of whom {len(flagged)} carry a term grade "
+          f"flag and {len(quiet)} have not logged in for >{QUIET_AFTER_DAYS} days")
+    print(f"  program spread: GPA {gpa_spread:.2f}, quiet share {quiet_spread:.1f} points")
+    for code in sorted(per_program):
+        print(f"    {code:7} avg GPA {per_program[code][0]:.2f}, quiet {per_program[code][1]:.1f}%")
     print(f"  demo moment 6 asks about {STEP_6_STUDENT} ({step6['name']}, {step6['program_code']})")
     print(f"    taking now: {', '.join(step6_now)}")
     print(f"    next term:  {', '.join(step6_options)}")
