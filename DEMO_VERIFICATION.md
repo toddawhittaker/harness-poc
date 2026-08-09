@@ -1,5 +1,199 @@
 # Demo verification — SPEC §7 against the live stack
 
+## Demo casting — who the script asks about
+
+Recorded here so the demo script, the seed guards, and the verifier all name the
+same people. Set in Session 3.
+
+| Demo moment | Persona asking | Subject | Why this one |
+|---|---|---|---|
+| 6 — record vs pulse | dana | **S-1055, Leon Cline (CS-BS)** | Mid-program: 9 of 24 credits, taking CS-210 now. Next term offers exactly three courses he can take (CS-310, CS-350, CS-410 — all with seats) and exactly one he cannot (CS-460 Capstone, needs CS-310 and CS-350 first). GPA 3.41, logged in 3 days ago, so nothing distracts from the question. |
+| — | — | S-1042, Nathan Osborne | **No longer used by step 6, and deliberately unchanged.** He is near the end of CYB-BS, so his honest answer is "nothing new to register for until CYB-410 and CYB-420 finish". `scripts/seed.py::verify` asserts he still has zero open options, so nobody can quietly retune him into a slide. |
+| 1 | dana | her 25 advisees, 8 quiet | unchanged |
+| 5 | noor, then kim | CYB-310-A, then BUS-201-A (refused), then the rollup | unchanged |
+
+`STEP_6_STUDENT` in `scripts/seed.py` is the single source of that id; `verify()`
+fails the seed run if the shape above stops being true.
+
+---
+
+# Session 3 verification — the current record
+
+Run 2026-08-09 02:33:51–02:43:27 UTC by the demo-verifier agent, against the
+live compose stack with all ten services healthy. Nothing in the repository was
+changed. Steps 1, 2, 3, 5, 6, 7 and 8 were driven through the real Chainlit apps
+over socket.io with a real `POST /login`, which is what the demo does; step 4 ran
+`./scripts/demo_bypass.sh` unmodified. Audit rows 1747–1941 belong to this run —
+195 rows, 76 of them from the ten-step script.
+
+## Summary
+
+| # | SPEC §7 claim | Result | Change since Session 2 |
+|---|---|---|---|
+| 1 | Dana: struggling advisees, quiet ones flagged, `[colleague]` | PASS | unchanged |
+| 2 | Kim, same question: aggregates, no individual names | PASS on the claim; the answer reads badly on a projector | worse |
+| 3 | Pat: courteous gate refusal, then a labor answer | PASS | old wording wart gone, a new one appeared |
+| 4 | The bypass, blocked at the MCP layer | PASS | now also proves the connection is never opened |
+| 5 | Noor's section, Noor refused by name, Kim's rollup | PASS | unchanged |
+| 6 | Dana: what should S-1055 take next term | **PASS — was FAIL** | fixed |
+| 7 | Qualification synthesis: strong, partial, miss | **PASS — was FAIL** | fixed |
+| 8 | Gap synthesis: the two unmapped fast-growers | **PASS — was PARTIAL** | fixed |
+| 9 | Audit page shows the session, refusals and bypass included | PASS | unchanged |
+| 10 | Honesty slide claims | PASS (one claim untestable) | unchanged |
+| A | Prompt-cache discipline (SPEC §1) | PASS — 59 model calls, 0 with zero cache hits | unchanged |
+| B | 20 consecutive gateway requests, zero handshake failures | PASS — 20/20, 0 retries | fixed |
+| C | Registry filtering visible in the audit trail | PASS | new evidence |
+| D | Two apps visibly distinct; `tools:` suffix subtle | PASS | new |
+| E | Answers that land badly in a room | **One real problem: model narration** | worse |
+
+## The three steps that were broken, and why they now pass
+
+**Step 6 — was FAIL on answer quality, now PASS.** Demo moment 6 asks dana what
+S-1055 should take next term. The answer names Leon Cline, 3.41 GPA, 9 of 24
+credits, currently taking CS-210, then three offered courses with seat counts
+(CS-310 with 36 seats, CS-350 with 21, CS-410 with 35) and exactly one blocked:
+"CS-460 (Capstone) remains locked until both CS-310 and CS-350 are completed
+[colleague]." CS-210 — the course he is sitting in — does not appear among the
+options. The verifier confirmed that is structural rather than lucky:
+`services/mcp-colleague/app.py` skips in-progress courses and reports them
+separately, so the Session 2 defect is fixed for all 300 students, not only for
+the cast one. Audit rows 1787–1795, three `tool_call` rows all `decision: ok`.
+
+**Step 7 — was FAIL, now PASS.** The qualification question now performs the
+exact-string skill join the spec describes, and the trio survives the question's
+own "fast-growing" filter: Information Security Analysts at 32.7% growth is a
+strong match at 8 of 8 skills; Network and Computer Systems Administrators at
+21.5% is the partial at 3 of 6 (missing cloud architecture, containerization and
+infrastructure automation); AI/ML Engineers at 35.2% is the clean miss at 0 of 7.
+`[kuali]` and `[labor]` interleave throughout. Raising Network and Computer
+Systems Administrators from 3.1% to 21.5% is what put the partial match inside
+the band the question asks about. Audit rows 1796–1805.
+
+**Step 8 — was PARTIAL, now PASS.** Both unmapped fast-growers surface with
+adjacency drawn from real curriculum: AI/ML Engineers at 35.2% with 4 of 7 skills
+covered by DAT-MS and CS-BS and deep learning missing from the whole catalog;
+Cloud Infrastructure Architects at 33.8% with 4 of 7 covered by IS-MS and CS-BS
+and containerization plus infrastructure automation missing. The verifier checked
+all three "missing anywhere" claims directly against `data/kuali.db` and they are
+true. Seventeen audit rows (1806–1822), nine tool calls across two servers in a
+single turn — the best evidence in the script that a real agent loop is running.
+
+## Checks A to D, in brief
+
+**A. Prompt-cache discipline: PASS, decisively.** Fifty-nine model calls across
+the script and the 20-request run, and not one reported zero cache hits. The
+router's hit count was 768 on every single call, with misses between 14 and 27 —
+the signature of a genuinely fixed prefix where only the short dynamic tail
+changes. Orchestrator hits scale with role, from 896 for pat with two tools in
+view to 6016 for kim with ten, which is what happens when tool schemas sit inside
+a cacheable prefix. Residual orchestrator misses are the tool result, which is
+new content on every run by definition and should never cache.
+
+**B. Twenty consecutive gateway requests: PASS, 20 of 20.** Zero request
+failures, zero `answer_failed` rows, zero handshake retries, latencies between
+8.3 and 14.6 seconds. Session 2's roughly one-in-sixteen handshake failure rate
+is gone. Worth noting which half of the fix did the work: the `reconnected` field
+is empty on all twenty, so the retry never fired. Not building clients to servers
+the caller cannot use is what fixed it; the retry is insurance.
+
+**C. Registry filtering, visible in the trail: PASS.** Every orchestrator answer
+now records which servers it reached. Pat's two requests both carry
+`servers: ["labor"]`; noor's both carry `servers: ["canvas", "kuali", "labor"]`.
+Neither reaches the student record system. The container logs prove the stronger
+claim — that no connection was opened at all. Across pat's step 3 window
+(02:35:00–02:35:10) mcp-colleague logged nothing while mcp-labor logged its
+handshake and tool call; the single mcp-colleague line in that period comes from
+`172.20.0.1`, the host, which is the bypass script's own curl, not from
+`172.20.0.8`, the orchestrator.
+
+**D. The two apps, and the receipts line: PASS.** They differ before anyone types
+anything: `GET /auth/config` returns `"default_theme": "light"` on the advisor
+app and `"dark"` on the executive one. The palettes are not near-misses — warm
+hues 20 to 36 against cool hues 205 to 222, burnt orange on cream against bright
+blue on near-black — and even the corner radius differs. Everything that is not
+theme is identical: the two `harness_chat.py` files are byte-identical and `diff`
+on the two `app.py` files returns only the docstring, the name, the greeting and
+the starters. The `tools: …` suffix renders as a muted 0.8125rem footnote at 85%
+opacity, and an empty tool list renders as `no tools called` rather than being
+hidden — which is the whole story in step 3a and step 4.
+
+## Findings, all of them outside Session 3's permitted diff
+
+None of these were acted on. Each names the file and the change.
+
+1. **Model narration before the answer — the one that matters.** In steps 2, 7
+   and 8 the model narrates its own working first. Steps 7 and 8 get a line or
+   two, which is survivable. Step 2 gets 130 words of first-person deliberation
+   with a visible false start ("Wait — I have no tool that maps an advisor name
+   to their advisees. Let me check if there's anything I missed"), which is about
+   a third of the answer, on the slide where the room decides whether this is a
+   product or a chatbot demo. The system prompt already says "Lead with the
+   answer"; the model is disobeying an instruction that exists. Fix:
+   `services/orchestrator/prompts.py`, a rule forbidding first-person process
+   narration. It is inside the static prefix, so cache discipline is unaffected.
+2. **`SPEC.md` §7 step 6 still says S-1042.** The recast to S-1055 was
+   pre-approved in `reports/session-2.md` §7.1(b) and both Chainlit starter
+   buttons already say S-1055, but the master document does not. CLAUDE.md says
+   the spec wins where code and spec conflict, so this is a trap for the next
+   reader. One id.
+3. **The gate tells pat that deans get advisee detail.** mcp-colleague's own
+   spec-fixed string says the opposite: "Individual student records require an
+   advisor assignment; deans receive aggregates." Two screens in the same demo
+   contradict each other. Fix: `services/gateway/prompts.py`, have the
+   `advisee_detail` bullet name advisors only.
+4. **A bad tool argument is audited as a refusal.** `services/mcp-kuali/rules.py`
+   catches every non-`ToolError` exception and writes `decision: "refused"` with
+   the exception class name, and the viewer paints any refused row amber. Row
+   1797 is therefore an amber "mcp-kuali refused the dean" whose honest
+   explanation is "the model typed a program code that does not exist", sitting
+   beside three amber rows that are genuine RBAC refusals. Fix: give bad input
+   its own decision value and its own colour, so refusals mean refusals.
+5. **The audit viewer fetches only the newest 100 events.** The ten-step script
+   writes 76 rows, so step 1 survives with 24 rows of headroom. Two warm-up
+   questions before the demo, or one extra Q&A exchange mid-script, push step 1
+   off the page at the moment you scroll back to it. `services/audit/viewer.html`,
+   `limit=100` to `limit=200`.
+6. **The pre-demo check in CLAUDE.md is weaker than it looks.** It reads only the
+   `audit` and `gateway` logs, but three of the eleven dropped events found
+   during Session 3 came from mcp-kuali, mcp-labor and mcp-colleague — the
+   tool-call rows the demo actually points at. And `tail -20` covers roughly 100
+   seconds, so a drop from three minutes ago is already out of the window. A
+   replacement that answers the question, with no code change:
+   `docker compose logs --since 30m 2>&1 | grep "dropped" || echo "clean"`.
+   For the record: zero events were dropped at or after 02:33:00, so this run's
+   receipts are complete and step 9 is safe.
+7. **The dean answer still offers a route to per-student data.** Milder than
+   Session 2 but not gone: "If you can provide section IDs for the sections your
+   advisees are in, I can pull per-student engagement for those sections." Kim is
+   a dean, so that really would work. Not an authorization failure; it just reads
+   badly in the beat about roles gating data. Extend the orchestrator prompt's
+   rule 3 to cover offering a workaround, not only attempting one.
+8. **Step 8 asserts about six programs from four tool calls.** The claims happen
+   to be true — verified against `data/kuali.db` — but `get_course_outcomes` was
+   called four times and there are six programs. If someone asks "did you check
+   HIM-BS?", the honest answer is "it did not look".
+9. **Seed, minor: BUS-201-B holds three students.** SPEC §5 asks for it to be
+   visibly unhealthy, and it is, but on an n of three. The script never shows it
+   — step 5b shows only the refusal — so this matters only in Q&A. Raise its
+   enrollment to eight or ten if anyone is in `scripts/seed.py` anyway.
+10. **Seed, cosmetic: repeated surnames.** Five students are surnamed Whitfield
+    like the advisor persona, but none is one of dana's advisees and none is in
+    CYB-310-A, so no Whitfield student appears anywhere in the script as it now
+    runs. Duplicate surnames persist inside dana's list. Dropping "Whitfield"
+    from `LAST_NAMES` closes it; not worth opening the file for.
+
+Full run transcripts, one file per step, are in the session scratchpad and are
+quoted at length in `SESSION_REPORT.md`.
+
+---
+
+# Session 2 verification — superseded, kept for its reasoning
+
+Everything below is the Session 2 verifier's report, left exactly as written. It
+is retained because `reports/session-2.md` cross-references its analysis, in
+particular the growth-rate proposal that Session 3 acted on. Its findings on
+steps 6, 7 and 8 are closed; see the Session 3 record above.
+
 > **Addendum added after this report was written (not by the verifier).**
 > Steps 6, 7 and 8 were fixed in response to the findings below and re-verified.
 > Step 7 now performs the exact-string skill join and reports 8/8 for
