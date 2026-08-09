@@ -31,7 +31,7 @@ BRAND = Branding(
          "Which fast-growing occupations would a Cybersecurity BS graduate qualify for?"),
         ("Catalog gaps",
          "Which fast-growing occupations have no matching program in our catalog — "
-         "what could we consider rolling out?"),
+         "what could we consider rolling out? Check each program in our catalog."),
     ],
 )
 
