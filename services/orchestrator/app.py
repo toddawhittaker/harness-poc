@@ -105,13 +105,28 @@ MCP_CONNECT_BACKOFF = 0.25
 #
 # It names the fault and then restates the requirement, because "that was
 # wrong" without the requirement invites a differently-wrong second attempt.
+#
+# It asks for a CALL before it allows a decline, and the order is the whole
+# point. An earlier version offered "say the tools cannot ground it" as the
+# first way out, and the model took it: the reply was honest, but the tool that
+# would have refused was never called, so the refusal never reached the screen
+# and no amber row was written for it. Worse, a model asked to explain its own
+# inability twice claimed the tool was unavailable to it when the tool was in
+# its set and it had called it a minute earlier. So: call the tool, relay what
+# comes back including a refusal, and decline only when nothing you hold could
+# answer.
 REGROUND_INSTRUCTION = (
     "That reply is not grounded in this request's tool results: {problem}\n\n"
-    "Answer the question again from scratch. Use only names, ids and numbers "
-    "that a tool returned in this conversation; cite each fact to the server "
-    "whose tool returned it; and if the tools cannot ground an answer, say that "
-    "in one flat sentence and stop rather than supplying figures. Do not "
-    "mention this correction or apologise for the first reply."
+    "Answer the question again, and call a tool before you write anything. "
+    "Find the tool in your set that would answer the question as asked, call it "
+    "with the arguments the question names, and relay what it returns — a "
+    "refusal included, passed on in the words it gave you. Every name, id and "
+    "number comes from a result in this conversation, and each fact is cited to "
+    "the server whose tool returned it. Only if no tool you hold could answer "
+    "the question do you say so, in one flat sentence, and stop. Never say a "
+    "tool is unavailable to you when that tool is in your set, and never let "
+    "that sentence stand in for a call you did not make. Do not mention this "
+    "correction or apologise for the first reply."
 )
 
 # What the caller gets when the second attempt is ungrounded too. One sentence,

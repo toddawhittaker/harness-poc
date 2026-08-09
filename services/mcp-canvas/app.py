@@ -63,6 +63,12 @@ class SectionEngagement(BaseModel):
     enrollment: int
     pct_logged_in_this_week: float
     missing_submissions: int
+    # How many rows are in `students`, stated rather than left to be counted.
+    # `enrollment` is the same number by construction — both come from the
+    # activity rows — but it reads as a property of the section rather than as
+    # the length of the list beside it, and a model summarising the list has
+    # been seen to recount it and get a different answer.
+    student_count: int
     students: list[StudentActivity]
 
 
@@ -125,7 +131,7 @@ async def get_my_sections(ctx: Context) -> list[SectionSummary]:
 
 @mcp.tool()
 async def get_section_engagement(section_id: str, ctx: Context) -> SectionEngagement:
-    """Per-student engagement for one section: days since last login, submissions in, submissions missing."""
+    """Per-student engagement for one section: days since last login, submissions in, submissions missing. student_count is how many students are in the section."""
     claims = caller(ctx)
     async with audited("get_section_engagement", claims, {"section_id": section_id}):
         # The boundary check runs before the section is read, so a refusal
@@ -142,18 +148,19 @@ async def get_section_engagement(section_id: str, ctx: Context) -> SectionEngage
                  query("SELECT student_id, student_name FROM section_enrollment WHERE section_id = ?",
                        section_id)}
         enrollment, pct_active, missing = activity_stats(activity)
+        students = sorted(
+            (StudentActivity(
+                student_id=row["student_id"], name=names.get(row["student_id"], row["student_id"]),
+                last_login_days=row["last_login_days"], submitted=row["submitted"],
+                missing=row["missing"],
+            ) for row in activity),
+            key=lambda student: student.student_id,
+        )
         return SectionEngagement(
             section_id=section["id"], course_code=section["course_code"],
             instructor_name=section["instructor_name"], enrollment=enrollment,
             pct_logged_in_this_week=pct_active, missing_submissions=missing,
-            students=sorted(
-                (StudentActivity(
-                    student_id=row["student_id"], name=names.get(row["student_id"], row["student_id"]),
-                    last_login_days=row["last_login_days"], submitted=row["submitted"],
-                    missing=row["missing"],
-                ) for row in activity),
-                key=lambda student: student.student_id,
-            ),
+            student_count=len(students), students=students,
         )
 
 
