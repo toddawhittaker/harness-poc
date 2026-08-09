@@ -1,0 +1,466 @@
+# What the POC taught us
+
+This is the transferable part of the harness proof-of-concept: the things we
+learned building it that would cost the MVP team real time to learn again. It
+is written for people who have not read the code. Each entry says what
+happened, where the evidence is, and what to do about it in the production
+system described in `ARCHITECTURE.md`.
+
+The POC is a working miniature of that system: one always-live service (the
+"harness") sitting above four mock institutional systems, reached by two thin
+chat applications, with the user's own identity carried end to end and
+authorization checked independently at every layer. The identities and the data
+are fake. The mechanisms — signed tokens, per-request validation, tool-level
+enforcement, the audit trail — are real, which is why the findings below
+transfer.
+
+Every claim here is drawn from the session reports in `reports/session-*.md`
+and the verification records in `DEMO_VERIFICATION.md`. Session numbers are
+given so the underlying evidence can be checked.
+
+A note on how to read this. The single most useful pattern across ten sessions
+is stated in entry 4: **defects we fixed in code stayed fixed, and defects we
+fixed by rewriting instructions to the model came back.** Most of the other
+entries are instances of it.
+
+---
+
+## 1. A per-request variable is not per-request when the session is stateful
+
+**What happened.** The obvious way to hand a validated identity to a tool is to
+put it in a context variable — a per-request slot the framework provides — set
+by middleware when the request arrives, and read by the tool that runs a moment
+later. In the Model Context Protocol server framework we used (FastMCP), in its
+default stateful mode, this is wrong, and wrong in the direction that matters.
+A stateful session runs every subsequent tool call inside the task created by
+the *initialize* request. A context variable set on a later request is
+invisible to the tool, so the tool keeps reading the identity of whoever opened
+the session.
+
+Concretely: open a session with user A's token, then call a tool with user B's
+token, and the tool authorizes as A. One caller acting as another, silently,
+with both tokens valid.
+
+We did not infer this. A probe server opened a session with `Bearer FIRST` and
+called a tool with `Bearer SECOND`; the tool read `FIRST` while the underlying
+request scope showed `SECOND` correctly. The fix was to run the servers
+stateless (`stateless_http=True`) and read the caller's claims from the
+per-request scope rather than from any ambient variable.
+
+**Where.** Session 2, §3.1. Regression tests in `tests/test_auth.py` assert the
+observable behaviour — a session opened with one persona's token and driven
+with another's returns the second persona's answer — so they keep holding
+whichever mechanism is underneath.
+
+**What the MVP should do.** Treat "where does the tool read the caller's
+identity from?" as an explicit design decision with a written answer, not as a
+convenience the framework provides. Prefer reading identity from the request
+itself at the point of use. Whatever you choose, write the two-token probe as a
+test before you need it: it is about thirty lines, it runs against the live
+service, and it is the only thing that distinguishes a correct implementation
+from one that looks correct.
+
+---
+
+## 2. An authorization refusal must not be framed to the model as "try again"
+
+**What happened.** The agent framework's tool client had a default —
+`tool_error_behavior='retry'` — that converts any tool error into a retry
+instruction to the model: *that failed, correct yourself and try again.* For a
+transient error that is sensible. For an authorization refusal it is exactly
+wrong. The model is being told to work around a boundary the institution just
+enforced, it burns the run's retry budget doing so, and when the budget runs
+out the request fails with a server error instead of a polite refusal.
+
+Setting the behaviour to `failed` shows the model the refusal as a *result* it
+can read and relay. The demo beat where a faculty member is refused another
+instructor's section then produces one tool call, one refusal, and one relayed
+sentence.
+
+**Where.** Session 2, §3.2.
+
+**What the MVP should do.** Refusals and failures are different kinds of event
+and must be plumbed differently from the tool layer up. A refusal is an answer:
+it should reach the model as data, reach the user as prose, and reach the audit
+log as a decision. Audit any framework default that decides what happens after
+a tool returns an error — the defaults are written for flaky networks, not for
+access control.
+
+---
+
+## 3. In a router prompt, describing what a role receives decides what it may ask
+
+**What happened.** The gateway runs a small, fast model as a triage step: is
+this question in scope, and is it plausible that a caller with these roles is
+asking it? It is deliberately not the enforcement layer — enforcement lives in
+the tool servers — but a refusal there means the request never reaches them.
+
+We wrote two sentences into that prompt describing what deans receive
+(aggregates, not individual student records). Neither sentence was a rule about
+what deans may *ask*. Both were read as one. The dean persona was refused at
+the gate on five of five attempts, deterministically, and the demo step where
+two roles ask the same question and get role-appropriate answers simply
+stopped working. Removing the first sentence did not fix it; the second leaked
+the same signal.
+
+What worked was to stop describing roles at all and state the rule as a closed
+lookup: here is the list of role-to-category pairs, that list is the entire
+test, do not narrow it by reasoning about how much of a category a role would
+see in practice. Where holders had to be named, they were named positively and
+as a closed list — "those two, and no third" — so that other roles are excluded
+by omission rather than by a negation that reads like a verdict.
+
+**Where.** Session 4, §4.1. The lesson in one line: *say who holds a thing,
+never who does not.*
+
+**What the MVP should do.** Keep triage prompts to a closed list with no prose
+about roles, and test the routing decision for every role you support, not just
+the one you changed. If a triage model can refuse, its refusals need the same
+regression tests as the enforcement layer — and the reason enforcement lives
+below it is precisely that this prompt is easy to get wrong.
+
+---
+
+## 4. Mechanical fixes held; prompt fixes regressed
+
+**What happened.** This is the strongest pattern in the record. Ten sessions
+produced two kinds of change: changes to the system that make a bad outcome
+impossible, and changes to the model's instructions that ask it not to produce
+one. The first kind closed defect classes permanently. The second kind bought
+partial improvements that decayed, moved, or reappeared in a new shape.
+
+The measured record:
+
+| Defect | Fix | Result |
+|---|---|---|
+| Model invents another section's roster when refused (3 of 10 runs, Session 5) | Prompt paragraph forbidding invention | Reduced, not closed |
+| Same defect | **Groundedness guard in code** (Session 6) | 0 of 10, and 0 in every session since |
+| Reply claims a tool is unavailable that the caller holds | Prompt sentence, in the corrective instruction only (Session 7) | 8 of 10 |
+| Same sentence promoted to the main prompt (Session 8) | Prompt | 5 of 5 — but introduced a new defect elsewhere (entry 8) |
+| Receipt naming a tool that never ran | **Filtering the receipt against the offered set in code** (Session 9) | 10 of 10 clean, and provably so |
+| Demo's opening tallies wrong (Sessions 5–7) | **Tool returns the counts it used to make the model derive** (Session 8) | The three tool-supplied counts correct in every run since |
+| The one count the model still derived itself | Adding a fourth count field (Session 9) | Still wrong in 2 of 4 runs — the field was right, the sentence was not |
+| Same count | **Changing the data so the four counts are four distinct facts** (Session 10) | See entry 9 |
+
+**Where.** Sessions 5 through 10; the table above is assembled from each
+session's measurement section.
+
+**What the MVP should do.** When a model misbehaves, ask first whether the
+system can be arranged so the misbehaviour is impossible or is caught after the
+fact by something deterministic. Give the model the number rather than the
+ingredients; filter the output rather than requesting good output; check the
+answer against what actually ran. Reserve prompt changes for things that are
+genuinely about tone and shape, budget for measuring them across many runs, and
+expect to re-measure whenever anything else changes. A prompt rule is a
+probability, not a guarantee, and it should never be the only thing standing
+between a user and a wrong answer.
+
+---
+
+## 5. The groundedness guard: what it checks, what it cannot
+
+**What happened.** After the fabrication described in entry 6, we added a check
+in the orchestrator that runs after the model produces an answer and before the
+user sees it. It compares the provenance the answer *claims* against what the
+request actually did. The system already knew which tool belongs to which
+server, so the check needed no new information:
+
+1. If the answer carries a citation marker naming a server that made no call
+   during this request, the answer is ungrounded.
+2. If the answer carries no markers, made no tool calls, and states figures
+   about students or sections, it is ungrounded — a number about people with
+   nothing behind it is not a claim from anything.
+
+On the first ungrounded verdict the orchestrator writes an audit row and
+regenerates once, sending the problem as a trailing corrective message. That
+message is never merged into the system prompt, so the cached prompt prefix
+survives and the retry is cheap. If the second attempt is also ungrounded, the
+user gets one flat sentence — "I can't ground an answer to that with the tools
+available" — and that is audited too.
+
+**The ledger.** Across Sessions 6 to 10 the guard fired roughly twenty times.
+Every fire was a true positive. It has never rejected a good answer, and only
+twice has a regeneration failed and the flat sentence reached a user.
+
+**The two blind spots, both known and both deliberate.**
+
+- *Prose that names a server without brackets.* The check looks for markers in
+  square brackets. A reply saying "the tools I have can pull student records via
+  the colleague server" names a server it never reached, in words, and passes
+  untouched. Found in Session 6, §7.2; still open.
+- *Replies with no citation marker at all.* An answer with no markers makes no
+  false claim of provenance, so the first rule cannot fire, and if it does not
+  state figures about people the second cannot either. Several otherwise correct
+  answers have shipped with no citation. Session 7, §7.2; Session 9, §7.4.
+
+A third thing it deliberately does not check: whether the marker on a given
+sentence is the *right* one among the servers that did run. That is citation
+accuracy, and a guard that guessed at it would start rewriting correct answers.
+
+**Where.** Session 6, §2.1 (design and tests); Sessions 7–10 (the ledger).
+`services/orchestrator/grounding.py`, about a hundred lines, no dependencies
+beyond the standard library, tested against real transcripts of both good and
+fabricated answers.
+
+**What the MVP should do.** Build this early; it is small and it pays for
+itself the first time it fires. Two design points transfer directly: check
+provenance against execution rather than against the model's own account of
+itself, and make the corrective retry a trailing message so the cached prefix
+is not disturbed. Be explicit in the code about what the check does not cover —
+ours says so in its own docstring, which is why the blind spots were found
+deliberately rather than discovered on stage. If citations matter to your
+users, add the "markers absent while tools ran" verdict we deferred.
+
+---
+
+## 6. Under refusal, a model may invent rather than stop — and the recovery is worth designing
+
+**What happened.** The most serious finding of the build. In the demo beat where
+a faculty member asks about a section she does not teach, the model would
+sometimes see from an earlier tool result that the section was not hers, decline
+to call the tool at all, and then invent the answer. In ten runs it happened
+three times. One invented reply named twenty-four students in three tiers with
+logins and missing-submission counts. The real section has three students. Not
+one name or number matched.
+
+This is invention rather than leakage — the better of the two bad outcomes,
+because nothing was reached and nothing escaped — but it lands on the slide
+whose entire point is that the boundary holds, and the audit page has no
+refusal to show because no tool was ever called.
+
+The rescue is worth describing because it is the mechanism working end to end.
+In a later ten-run measurement, one run produced the same fabrication shape: an
+answer citing the learning-management system having called nothing. The guard
+rejected it, the regeneration called the tool, the tool refused, and what the
+user saw was the refusal — with the amber row in the audit trail that the demo
+needs. A fabrication was converted into the correct behaviour by a check in
+code. That is run 10 of Session 6, audit rows 3398–3399.
+
+**Where.** Session 5, §4.2 (the fabrication); Session 6, §4.1 (ten runs, zero
+fabrications, and the rescue).
+
+**What the MVP should do.** Assume that "I am not allowed to answer this" is a
+state some model will fill with plausible text, and design for it: make the
+refusal reachable as a tool result, check the answer's provenance before the
+user sees it, and give the system one chance to retry against the real tool.
+Note also what did *not* work — removing the near-identical section id that we
+first blamed moved the rate from 5-in-8 to 7-in-10 and did not close it, and no
+amount of registry configuration can force a tool call.
+
+---
+
+## 7. Client-held conversation history is the structural cause of invented lists
+
+**What happened.** The chat applications hold the conversation and send it back
+with each message, which keeps the harness stateless — a deliberate and, we
+still think, correct choice for the POC. But what they hold is *rendered prose*,
+not the tool results behind it. On the second turn of a conversation the model
+therefore has its own earlier sentences and no data.
+
+The failure that produced: a reply opened "My sections this term are CYB-310-A,
+NET-131-D, and NET-425-A." Two of those three section identifiers exist in none
+of the four databases. The first turn's tool call had returned the real list;
+the second turn had only the first turn's prose, which mentioned one section.
+The model needed a list nobody had asked it for and composed one. The guard
+reported the answer as grounded, correctly by its own definition: the citation
+named a server that had run. Right provenance, false content.
+
+Two things helped. A prompt paragraph — any roster comes from a tool result in
+the *current* turn, call the tool again if you need it — took the recurrence to
+zero across five runs and then five more. And the underlying structure stayed
+exactly as it was.
+
+**Where.** Session 7, §7.1 and open question 1; Sessions 8 and 9, §4 (zero
+recurrences).
+
+**What the MVP should do.** Decide deliberately what a second turn can see. If
+history stays on the client, treat every turn as if it has no data and make
+re-fetching cheap and obvious. If you keep server-side conversation state, keep
+the tool results in it, not only the rendered text — and note that this is a
+real architectural fork with consequences for statelessness, cost and privacy,
+not a detail. Either way, expect the failure to appear on multi-turn beats
+first, because that is where the gap between what was said and what was
+retrieved is widest.
+
+---
+
+## 8. "Tools used" must mean executed, and an attempt on a tool the caller lacks is its own event
+
+**What happened.** The orchestrator reported `tools_used` on every answer and in
+every audit row by reading the tool calls out of the model's run. That includes
+calls to tools the caller was never offered — the registry filters the tool list
+before the model sees it, so such a call reaches no server and returns nothing.
+
+On the beat where a low-privilege user's request is sent straight to the
+orchestrator to prove the layers below still refuse, the model asked for a tool
+that user does not hold. Nothing was reached and nothing leaked. But the receipt
+said `tools_used: ["get_my_sections"]` — a green audit row for a call that never
+happened, on the slide whose entire subject is that the receipts are true. The
+demonstration script printed the contradiction two lines apart.
+
+The fix was to split the two ideas. What the model *asked for* is one list; what
+*ran* is another. `tools_used` is now the executed list, so it is a subset of the
+offered list by construction on every row. An attempt on an unoffered tool gets
+its own audit row with a decision of `unoffered`, which no server row will ever
+sit beside. The groundedness guard was also switched to judge against the
+executed list, since a phantom call would otherwise put a server into the set
+the guard believes answered.
+
+Because ten runs of the beat produced no phantom call, we provoked one
+deliberately to prove the new path fires live — three times, three rows, no
+server contacted.
+
+**Where.** Session 8, §7.1 (the defect); Session 9, §2.1 and §4.1 (the fix, ten
+clean runs, and the deliberate probe).
+
+**What the MVP should do.** Define every audit field as an observation of
+something that happened, and derive it from the thing that happened rather than
+from the model's account. "Asked for", "was allowed", and "ran" are three
+different facts and all three are worth recording. When a fix's new path cannot
+be triggered by normal traffic, provoke it on purpose and label the probe as a
+probe — otherwise the fix is untested in production conditions.
+
+---
+
+## 9. Models get arithmetic wrong on the numbers they derive themselves
+
+**What happened.** A defect class that outlived every prompt aimed at it. The
+model reliably reports numbers a tool hands it and unreliably reports numbers it
+computes from a list in front of it.
+
+- Demo moment 1 opens with counts about an advisor's students. When the model
+  counted them itself it said 23, then 24, then "eight" above a list of nine.
+  Adding `advisee_count`, `flagged_count` and `quiet_count` to the tool result
+  fixed all three, in every run since (Session 8).
+- The next number in was the overlap — how many students are both flagged and
+  inactive. We added that as a fourth field too. The field was correct and the
+  sentence still was not: one run quoted the field and then overruled it on
+  screen — *"The server reported 8 flagged-and-quiet, but the data shows 9"*
+  (Session 9).
+- On the skills-matching beat, coverage tallies were stated as "4 of 6" on a
+  line that named three covered skills, and the error survived into the closing
+  summary the room actually reads (Session 9).
+
+**What thinking mode did to it.** In Session 10 we ran a controlled comparison
+of the model's extended-reasoning mode ("thinking"), which the specification
+disables by default for latency. Two arms, identical questions, fresh
+conversations, five runs of each of the two arithmetic-heavy beats per arm.
+
+| | Reasoning off | Reasoning on |
+|---|---|---|
+| Skills tallies: runs with a wrong tally | 2 of 5 | **0 of 5** |
+| Advisor counts: runs stating a wrong count or arguing with themselves | 3 of 5 | **0 of 5** |
+| Runs opening with visible deliberation before the answer | 5 of 5 | **0 of 5** |
+| Median latency across all beats | 13.8s | 21.3s |
+
+The mechanism is not mysterious. With reasoning disabled the model has nowhere
+to work except the visible answer, so the scratch work is the answer and the
+arithmetic errors are in it. With reasoning enabled the work happens before the
+reply and the reply is shorter, cleaner and more accurate — at roughly a 50%
+latency cost, and with one new failure of its own (entry 5's citation check
+fired more often, and once declined).
+
+**Where.** Sessions 5–9 for the defect class; Session 10 for the comparison;
+`DEMO_VERIFICATION.md` for the per-run detail.
+
+**What the MVP should do.** Do not ask a model to do arithmetic that a tool can
+do. Every count, percentage, and overlap that an answer states should be a field
+in a tool result, computed from the rows being returned and defined once in code
+so the tool and any test agree on what it means. Where a derived number is
+unavoidable, budget for reasoning mode on that path and measure the latency
+against your interaction design — this is a per-workload decision, not a global
+setting, and it is cheap to measure once you can run the same question ten times
+and score the answers.
+
+---
+
+## 10. Seed data is casting, and invariants beat aesthetics
+
+**What happened.** The demonstration data is generated by one deterministic
+script, and every fact a demo beat depends on is asserted in that script rather
+than hoped for. The assertions are specific: this advisor has exactly 25
+students of whom 9 carry flags; this student has exactly three open courses next
+term and exactly one blocked by a prerequisite; this instructor holds no section
+whose identifier resembles the one she will be refused for; these three skills
+are taught by no program in the catalog, exactly, in both directions.
+
+The discipline paid for itself repeatedly, and always at the moment when
+something looked cosmetically wrong:
+
+- A proposal to raise one program's average grade to a rounder number would have
+  lifted a student above the flag threshold and changed the advisor's headline
+  count. We kept the ugly number and the correct count (Session 8).
+- A proposal to add a named skill to a course to thicken one partial match would
+  have moved a different tally the same brief required to hold still, because the
+  skill belonged to both occupations. We added a different skill and asserted its
+  overlap profile so the choice cannot silently rot (Session 9).
+- One student is deliberately near the end of his programme, so his honest answer
+  is "nothing new to take". The script asserts he still has zero options, so
+  nobody can quietly retune him into a better slide (Sessions 2 onward).
+- In Session 10 we broke a nesting that had made two of the demo's four counts
+  the same number about the same people, and the change had to hold every one of
+  the twenty-odd other assertions. It did, first run.
+
+The one aesthetic thing that mattered: a spread. For three sessions the six
+programmes were within a tenth of a grade point and a few percentage points of
+each other, so the executive answer had nothing to lead with until it reached a
+second data source. Giving each programme its own profile — and asserting a
+minimum spread — gave that beat a headline.
+
+**Where.** `scripts/seed.py`, function `verify()`; Sessions 3, 8, 9 and 10.
+
+**What the MVP should do.** For demonstration and test environments, write the
+generator and the guard together, count things with the same function that wrote
+them, and let the guard fail the build loudly. When a figure looks wrong,
+establish which invariant it protects before you change it. And keep a written
+casting table — who the demo asks about and why — beside the data, so the next
+person changing a number can see what they are about to break.
+
+---
+
+## 11. Prompt-cache discipline is a rule you can verify from the audit trail
+
+**What happened.** The model provider bills a cached prompt prefix at a small
+fraction of an uncached one, and caching works by exact prefix match. So the
+rule is: system prompts are fixed strings, tool schemas are registered in a
+fixed order, and everything dynamic — the user's name, roles, question, history
+— goes in messages *after* the prefix. No formatted strings in a system prompt,
+ever.
+
+We made this checkable rather than aspirational. Every model call's cache hit
+and miss token counts go into the audit trail, and every session's acceptance
+criteria include "zero calls with zero cache hits". In Session 10's comparison,
+88 model calls across both arms reported a minimum of 896 hit tokens and not one
+zero-hit call. Twice during the build, a proposed change was rejected because it
+would have put dynamic content into a prefix; once, a corrective instruction was
+deliberately implemented as a trailing message for the same reason.
+
+**Where.** `SPEC.md` §1; `libs/harness_models/factory.py`; the standing cache
+check in every session report.
+
+**What the MVP should do.** Put the cache counters in the audit record from the
+first day and make a zero-hit call a build failure, not a footnote. Also read
+the right counters: our provider's total prompt-token count includes text it
+prepends server-side, so reasoning about cache behaviour from the total sends
+you hunting a bug that is not there. The hit and miss counters describe the
+cache; the totals do not.
+
+---
+
+## What the POC did not prove
+
+Stated plainly, because these are the questions the MVP has to answer and we did
+not:
+
+- Writes. Everything here is read-only. Authorization for a write, and the audit
+  and reversal story around it, is untouched ground.
+- Real identity. The POC mints its own signed tokens and passes them through
+  every hop. Production swaps that for the institution's identity provider and a
+  proper on-behalf-of exchange. The enforcement code does not change; the token
+  issuance does.
+- Scale. Tool clients are constructed per request, everything is SQLite, and no
+  component has been under load.
+- Small-cell suppression. A dean's aggregate over three students is currently an
+  aggregate over three students.
+- Anything about accuracy at the volume a real catalogue implies. Our data is
+  300 students and 12 occupations, tuned so the joins are provable by eye.
