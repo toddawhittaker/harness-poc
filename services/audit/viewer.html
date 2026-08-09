@@ -168,6 +168,10 @@
   function rowClass(ev) {
     if (FAILED.includes(ev.event)) return "failed";
     if (REFUSED.includes(ev.event)) return "refused";
+    // The guard catching a fabrication is the most interesting row in a run,
+    // and it carries no decision — so it read green and no chip could select
+    // it. It is not a success and it is not a refusal: it is the grey class.
+    if (ev.event === "answer_ungrounded") return "error";
     // A decision we do not recognise reads neutral, never as success. Rows
     // with no decision at all — router_classified, answer_returned — are green.
     const decision = ev.detail && ev.detail.decision;
