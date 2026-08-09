@@ -341,16 +341,24 @@ PINNED_PROGRESS: dict[str, tuple[list[str], list[str]]] = {
     STEP_6_STUDENT: (["CS-101", "CS-201", "CS-320"], ["CS-210"]),
 }
 
-# Canvas sections. noor teaches CYB-310-A and BUS-201-B; BUS-201-A belongs to
+# Canvas sections. noor teaches CYB-310-A and CYB-210-A; BUS-201-A belongs to
 # someone else, which is what makes the SPEC §4.6 refusal message true.
+#
+# Noor holds no BUS section at all, and that is deliberate. She used to teach
+# BUS-201-B — one character from BUS-201-A, the section demo moment 5 asks her
+# about and expects her to be refused for. The model lists her sections first,
+# finds a near-identical id it IS allowed to read, and helpfully answers about
+# that instead: the tool refusal never fires and the amber row demo moment 9
+# points at is never written. That is a name collision the seed created, not
+# model whimsy, so the seed is where it is fixed. `verify` asserts it.
 SECTIONS = [
     ("CYB-310-A", "CYB-310", "noor", "Noor Haddad"),
     ("CYB-310-B", "CYB-310", "fac-004", "Alan Petrov"),
     ("BUS-201-A", "BUS-201", "fac-005", "Denise Crawford"),
-    ("BUS-201-B", "BUS-201", "noor", "Noor Haddad"),
+    ("BUS-201-B", "BUS-201", "fac-005", "Denise Crawford"),
     ("CS-201-A", "CS-201", "fac-006", "Harold Nguyen"),
     ("CS-320-A", "CS-320", "fac-006", "Harold Nguyen"),
-    ("CYB-210-A", "CYB-210", "fac-004", "Alan Petrov"),
+    ("CYB-210-A", "CYB-210", "noor", "Noor Haddad"),
     ("CYB-240-A", "CYB-240", "fac-004", "Alan Petrov"),
     ("DAT-510-A", "DAT-510", "fac-007", "Ingrid Solberg"),
     ("DAT-520-A", "DAT-520", "fac-007", "Ingrid Solberg"),
@@ -809,6 +817,23 @@ def verify(state: dict[str, dict]) -> None:
                if code not in s1049["completed"] and not prereqs_met(code, set(s1049["completed"]))]
     assert "BUS-310" in blocked, "S-1049 must be blocked out of BUS-310 by the BUS-150 prereq"
 
+    # Demo moment 5 asks noor about BUS-201-A and needs her refused by name. She
+    # must therefore hold no BUS section at all: given one, the model reads her
+    # own near-identical id off get_my_sections and answers about that instead,
+    # the tool refusal never fires, and the beat loses its point. Asserted so
+    # the adjacency cannot come back by accident.
+    noor_sections = [sid for sid, _course, sub, _name in SECTIONS if sub == "noor"]
+    assert len(noor_sections) == 2, (
+        f"SPEC §3 says noor teaches two sections; she has {noor_sections}"
+    )
+    noor_bus = [sid for sid in noor_sections if sid.startswith("BUS-")]
+    assert not noor_bus, (
+        f"noor must hold no BUS section, and she holds {noor_bus}. Demo moment 5 "
+        "asks her about BUS-201-A and needs the tool refusal to fire; a BUS "
+        "section of her own gives the model something adjacent to answer about "
+        "instead. Give her a section outside the BUS prefix."
+    )
+
     # Demo moment 7: strong / partial / miss for a CYB-BS graduate.
     #
     # The question the demo actually asks is "which FAST-GROWING occupations
@@ -862,6 +887,7 @@ def verify(state: dict[str, dict]) -> None:
     print(f"    blocked:    {', '.join(step6_blocked)}")
     print(f"  S-1042 keeps his own answer: nothing new next term, {len(_s1042_blocked)} blocked")
     print(f"  S-1049 blocked out of: {', '.join(blocked)}")
+    print(f"  noor teaches {', '.join(noor_sections)} and no BUS section")
     print(f"  fast-growing means >= {FAST_GROWING_MIN_PCT}% ({len(fast)} of {len(OCCUPATIONS)} occupations)")
     print(f"  CYB-BS vs Information Security Analysts: {len(isa & cyb)}/{len(isa)} skills (strong)")
     print(f"  CYB-BS vs Network/Systems Administrators: {len(netadmin & cyb)}/{len(netadmin)} (partial)")
