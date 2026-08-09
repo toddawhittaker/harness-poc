@@ -130,7 +130,7 @@ quoting the spec sentence verbatim.
 | SPEC §1 "MCP SDK latest stable" | `mcp>=1.29,<2` (resolves to 1.29.0) | Latest stable 2.0.0 removed the FastMCP API SPEC §4.4 is written against. **User decision**, recorded as a SPEC §1 amendment by the user at `SPEC.md:35` |
 | Extract shared middleware into `libs/harness_auth` if <40 lines | Duplicated across four servers, byte-identical (`md5 240a12306570689a51ed47edc554ab99`) | `libs/harness_auth` is fixed and untouchable per the brief's own rule. The duplication comment carries the safety condition per the user's clarification: it is safe **because, and only because,** the negative-auth tests are parametrized across all four servers |
 | Diff confined to seven paths | Also `libs/harness_models/` and root `pyproject.toml` | `harness_models` per user decision. `pyproject.toml` because `addopts` deselected the very tests A1 requires |
-| — | `DEMO_VERIFICATION.md`, `SESSION_REPORT.md` at repo root | Deliverables required by the brief and by CLAUDE.md |
+| — | `DEMO_VERIFICATION.md` at repo root, `reports/session-2.md` | Deliverables required by the brief and by CLAUDE.md |
 
 **Files touched:** `docker-compose.yml`, `pyproject.toml`, `tests/{conftest,test_auth}.py`,
 `services/gateway/{app,prompts,pyproject,Dockerfile,uv.lock}`, and new

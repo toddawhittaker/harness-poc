@@ -7,7 +7,7 @@
 > ("6/7 covered, missing deep learning"); step 6 no longer offers courses the
 > student is currently taking. The seed-data findings at the end of this report
 > still stand and were NOT acted on — they are Session 3 tuning work. See
-> SESSION_REPORT.md for what changed and the re-verification evidence.
+> `reports/session-2.md` for what changed and the re-verification evidence.
 > The body of this report is left exactly as the verifier wrote it.
 
 Run at 2026-08-09 01:07–01:16 UTC, end of Session 2, by the demo-verifier agent.
