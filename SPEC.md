@@ -187,7 +187,7 @@ Deterministic (`random.seed(398)`), writes `data/colleague.db`, `data/canvas.db`
 
 **Colleague** (the record): 6 programs (CS-BS, IS-MS, CYB-BS, DAT-MS, BUS-BS, HIM-BS with CIP-like codes); 300 students with **boring realistic names** (no jokes — the room must stay on the argument); assignments: dana → 25 advisees, two fictional advisors take the rest; per student: gpa (skewed normal), last_login_days (mostly 0–5, a deliberate tail of 8 students >10 among dana's advisees — the demo depends on this), completed courses/credits, current registrations, term_grade_flags. Plus per-program degree requirements with prereq chains and a next-term course schedule, tuned so at least three of dana's advisees have a clean, interesting next-term answer (one blocked by an unmet prereq).
 
-**Canvas** (the pulse): current-term sections for the same courses, instructor assignments (noor teaches CYB-310-A and BUS-201-B; fictional instructors take the rest), and per-student weekly activity keyed to the *same student ids* as colleague: last_login_days, submitted, missing. Make CYB-310-A visibly healthy and BUS-201-B visibly not — noor's own-section answer should have texture.
+**Canvas** (the pulse): current-term sections for the same courses, instructor assignments (noor teaches CYB-310-A and CYB-210-A, and deliberately no BUS section — see below; fictional instructors take the rest), and per-student weekly activity keyed to the *same student ids* as colleague: last_login_days, submitted, missing. Make CYB-310-A visibly healthy and BUS-201-B visibly not, so the two ends of the range are on the record; noor's own sections are CYB-310-A and CYB-210-A, and her own-section answer should have texture. Noor must hold no section whose id is adjacent to BUS-201-A: demo moment 5 needs her refused for that section, and a near-identical id of her own gives the model something it may read and answer about instead.
 
 **Kuali** (the curriculum): per program, required course sequence with prereqs, and per course 3–5 outcomes tagged with SKILLS entries. Tune CYB-BS outcomes to strongly cover Information Security Analysts' skills and partially cover two others — the qualification demo should show a strong match, a partial match, and a miss.
 
@@ -201,8 +201,8 @@ Idempotent: delete and recreate all four on each run.
 
 ## 7. Demo script (~14 minutes full; cut line marked for a 10-minute slot)
 
-1. Both UIs side by side. Dana in Advisor Workspace: *"Which of my advisees seem to be struggling this term?"* → her 25, the quiet ones flagged, cited `[colleague]`.
-2. Kim in Executive Insights, same question → program aggregates, no individual names. Same harness, same second.
+1. Both UIs side by side. Dana in Advisor Workspace: *"Which students seem to be struggling this term?"* → her 25 — the only students her tools reach — the quiet ones flagged, cited `[colleague]`.
+2. Kim in Executive Insights, **the same words** → program aggregates, no individual names. The question carries no possessive, so neither answer has to argue with it; the role alone decides the scope. Same harness, same second.
 3. Pat in Executive Insights, same question → courteous gate refusal. Then Pat: *"Which occupations are growing fastest?"* → answered. Roles gate data, not curiosity.
 4. **The bypass.** `scripts/demo_bypass.sh` on screen: mints pat's token, curls the orchestrator directly — "suppose someone sweet-talks or skips the AI gate" — mcp-colleague refuses; the refusal lands amber in the audit view. One command, whole thesis.
 5. **Faculty vs dean.** Noor: *"How is my CYB-310 section doing this week?"* → live-ish engagement, `[canvas]`. Noor: *"And how's BUS-201-A doing?"* → refused by name — not her section. Kim: *"How's engagement across all programs this week?"* → the rollup. Faculty see their rooms; the dean sees the building.
