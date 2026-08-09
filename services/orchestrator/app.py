@@ -17,6 +17,9 @@ Four things happen on every request, in this order:
    every tool this role lacks is never dialled at all.
 4. The agent runs against a static system prompt with every dynamic thing after
    it, and every tool call and the final answer are audited.
+5. The answer is checked against the tools that actually ran before it is
+   returned (grounding.py). SPEC §4.3 tells the model to answer only from tool
+   results; this is the part that does not take its word for it.
 
 The harness holds no credentials of its own. Every tool call downstream happens
 as the person who asked, and no further.
@@ -41,6 +44,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserProm
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset
 
+import grounding
 from prompts import SYSTEM_PROMPT
 from registry import allowed_tools, registry_tools
 
@@ -92,6 +96,32 @@ MCP_READ_TIMEOUT = 60.0
 # request in seconds rather than hanging the demo.
 MCP_CONNECT_ATTEMPTS = 2
 MCP_CONNECT_BACKOFF = 0.25
+
+# The corrective instruction for an ungrounded reply. It is sent as a TRAILING
+# message on the second run — never merged into SYSTEM_PROMPT, and never
+# rendered into the prefix. The prefix has to stay byte-identical or every
+# request after this one is a cache miss (SPEC §1), and a guard that quietly
+# cost the demo its prompt cache would be a poor trade for a rare correction.
+#
+# It names the fault and then restates the requirement, because "that was
+# wrong" without the requirement invites a differently-wrong second attempt.
+REGROUND_INSTRUCTION = (
+    "That reply is not grounded in this request's tool results: {problem}\n\n"
+    "Answer the question again from scratch. Use only names, ids and numbers "
+    "that a tool returned in this conversation; cite each fact to the server "
+    "whose tool returned it; and if the tools cannot ground an answer, say that "
+    "in one flat sentence and stop rather than supplying figures. Do not "
+    "mention this correction or apologise for the first reply."
+)
+
+# What the caller gets when the second attempt is ungrounded too. One sentence,
+# courteous, and it promises nothing: SPEC §4.3's "if tools can't ground the
+# answer, say so and stop", said by the service rather than by the model.
+UNGROUNDED_REPLY = "I can't ground an answer to that with the tools available."
+
+# How many attempts the guard allows. One regeneration, then the flat sentence:
+# a loop here would turn a bad answer into a slow bad answer.
+GROUNDING_ATTEMPTS = 2
 
 
 def _check_every_registry_tool_has_a_server() -> None:
@@ -240,6 +270,29 @@ def message_history(history: list[Message]) -> list[Any]:
     return messages
 
 
+def tools_called(result: Any) -> list[str]:
+    """Which tools the model actually called, in call order, deduplicated.
+
+    Read back from the run rather than tracked as intent: reporting intent
+    would let `tools_used` disagree with the audit trail, and the audit trail is
+    the one that has to be true. On a regenerated run the history carries both
+    attempts, so this is every tool that ran during the whole request — which is
+    exactly the set the grounding check has to be judged against.
+    """
+    called: list[str] = []
+    for message in result.all_messages():
+        for part in message.parts:
+            if isinstance(part, ToolCallPart) and part.tool_name not in called:
+                called.append(part.tool_name)
+    return called
+
+
+def servers_reached(tools: list[str]) -> set[str]:
+    """The servers behind a list of called tools — the guard's ground truth."""
+    called = set(tools)
+    return {name for name, owned in SERVER_TOOLS.items() if owned & called}
+
+
 def caller_context(claims: Claims, message: str) -> str:
     """Who is asking and what they asked — dynamic, so it goes AFTER the prefix.
 
@@ -260,6 +313,8 @@ async def chat(
     started = time.perf_counter()
     allowed = allowed_tools(claims.roles)
     retried: list[str] = []
+    regenerated = False
+    declined = False
 
     try:
         async with AsyncExitStack() as stack:
@@ -273,6 +328,38 @@ async def chat(
                 caller_context(claims, request.message),
                 message_history=message_history(request.history),
             )
+
+            # The groundedness guard (SPEC §4.3). Inside the stack because the
+            # second attempt needs the same live MCP sessions — the point of
+            # regenerating is that the model can call the tool it skipped.
+            for attempt in range(1, GROUNDING_ATTEMPTS + 1):
+                called = tools_called(result)
+                verdict = grounding.check(result.output, servers_reached(called))
+                if verdict.ok:
+                    break
+                last = attempt == GROUNDING_ATTEMPTS
+                await audit_event(
+                    "answer_ungrounded", sub=claims.sub, roles=claims.roles,
+                    detail={
+                        "attempt": attempt,
+                        # The offending markers, so the audit page says which
+                        # claim of provenance was false and not merely that one
+                        # was. Empty when the reply cited nothing and asserted
+                        # figures anyway — there is no marker to name.
+                        "markers": list(verdict.markers),
+                        "reason": verdict.reason,
+                        "tools_used": called,
+                        "outcome": "declined" if last else "regenerating",
+                    },
+                )
+                if last:
+                    declined = True
+                    break
+                regenerated = True
+                result = await agent.run(
+                    REGROUND_INSTRUCTION.format(problem=verdict.reason),
+                    message_history=result.all_messages(),
+                )
     except Exception as exc:  # noqa: BLE001 — every outcome leaves a receipt
         # Without this, a model timeout or an unreachable MCP server is a bare
         # 500 and the audit page has nothing to say about it. Every other
@@ -294,14 +381,11 @@ async def chat(
             detail="The harness could not complete that request. Please try again.",
         ) from exc
 
-    # Read back what the model actually called. Reporting intent instead of
-    # fact would let tools_used disagree with the audit trail, and the audit
-    # trail is the one that has to be true.
-    tools_used: list[str] = []
-    for message in result.all_messages():
-        for part in message.parts:
-            if isinstance(part, ToolCallPart) and part.tool_name not in tools_used:
-                tools_used.append(part.tool_name)
+    tools_used = tools_called(result)
+    # The model's text is dropped when the guard declined it, and the tool rows
+    # below are still written: the calls happened, and a request that produced
+    # an answer nobody may read is exactly the one the audit page should show.
+    reply = UNGROUNDED_REPLY if declined else result.output
 
     for name in tools_used:
         # The MCP server audits this call too, under its own service name. Two
@@ -324,8 +408,13 @@ async def chat(
             # student record system.
             "servers": reachable_servers(allowed),
             "reconnected": retried,
+            # Whether the groundedness guard fired, and whether it had to give
+            # up. Normally both false, and a row where they are not is the one
+            # worth looking at.
+            "regenerated": regenerated,
+            "ungrounded": declined,
             "latency_ms": round((time.perf_counter() - started) * 1000, 1),
             **usage.model_dump(),
         },
     )
-    return ChatReply(reply=result.output, tools_used=tools_used)
+    return ChatReply(reply=reply, tools_used=tools_used)
