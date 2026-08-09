@@ -226,6 +226,14 @@ Anything downstream that depends on the retry is depending on the guard failing.
 We had built a demonstration of a security boundary on top of a citation check's
 willingness to reject, and could not see it until the check stopped rejecting.
 Before you soften any check, ask what stops happening when it stops firing.
+Entry 12 is the other half of that lesson: the demonstration should never have
+depended on the retry in the first place.
+
+The correction is kept, reverted but intact, as `docs/patches/item2-marker-correction.patch`
+with its five tests. The coupling that killed it here comes from this POC's
+client-held history and single-shot retry; an architecture that holds the
+conversation server-side does not have it, so the MVP should take the patch
+rather than inherit our reversion.
 
 **Where.** Session 6, §2.1 (design and tests); Sessions 7–10 (the ledger).
 `services/orchestrator/grounding.py`, about a hundred lines, no dependencies
@@ -500,6 +508,42 @@ the right counters: our provider's total prompt-token count includes text it
 prepends server-side, so reasoning about cache behaviour from the total sends
 you hunting a bug that is not there. The hit and miss counters describe the
 cache; the totals do not.
+
+---
+
+## 12. An enforcement receipt must never depend on the model volunteering to hit the boundary
+
+**What happened.** The demonstration beat that proves the access rules hold has
+a faculty member ask about a section she does not teach. The tool server refuses
+her, the refusal is relayed to the screen, and an amber row appears in the audit
+log — that row is the receipt, and it is the whole point of the beat. It only
+ever appears if the model chooses to call the tool that will refuse it. Twice in
+this build the model instead answered correctly from a list it already had —
+"that is not one of your sections" — and the boundary was never touched, so
+there was nothing to record. The answer was right and the proof was missing.
+Nothing in the system made the call certain, and no amount of prompt wording
+would have; a model that already knows the answer has no reason to ask. The
+lesson is that a receipt is evidence about the enforcement layer, and evidence
+about the enforcement layer must be produced by something that always runs. When
+proof of refusal matters — for an audit, a compliance review, or a room full of
+people being asked to believe you — generate it deterministically rather than
+hoping the model walks into the wall. Our own demonstration already contains the
+correct pattern and we did not notice: the bypass script (`scripts/demo_bypass.sh`)
+calls the tool server directly with a low-privilege token, every time, and its
+refusal row is the one receipt in the whole script that cannot fail to appear.
+
+**Where.** Session 11, both certification passes; `SESSION_REPORT.md` §9,
+question 2.
+
+**What the MVP should do.** Separate the two things the demonstration was
+conflating. Conversational answers are best-effort and shaped by what the model
+already knows. Proof that the boundary holds is a *test*, and it should be
+produced by a scheduled deterministic probe — a small set of calls, made with
+real tokens as real people, that are expected to be refused — writing its
+refusals into the same audit log the conversations write into. Then the receipt
+exists whether or not anyone asked the right question that day, and the audit
+trail can answer "did the rules hold this week" without depending on a model's
+choices at all.
 
 ---
 

@@ -568,20 +568,26 @@ Certification pass B ran 22:54:58–23:00:5x, entirely between those two, and th
 verifier independently confirmed zero drops inside its own window. The receipts
 demo moment 9 points at are complete.
 
-### 8.3 The reverted work is preserved
+### 8.3 The reverted work is preserved, in the repository
 
-Two patches, in the scratchpad, applying cleanly to this commit:
+`docs/patches/item2-marker-correction.patch` — 294 lines: `grounding.py`,
+`app.py`, `viewer.html`, and the five tests. `git apply` restores item 2
+exactly, five passing tests included.
 
 ```
-session-11-full.patch          474 lines — everything before the fallback
-item2-marker-correction.patch  294 lines — grounding.py, app.py, viewer.html, the five tests
+$ git apply --check docs/patches/item2-marker-correction.patch
+APPLIES CLEANLY to 0e08b1c
 ```
 
-`/tmp/claude-1000/-home-todd-projects-harness-poc/c47fe946-85a5-41f0-b42e-267a5daa2892/scratchpad/`
+`docs/patches/README.md` says in three sentences what it is, that it applies to
+`0e08b1c`, and why it was reverted — including the part that matters to the MVP
+team: the coupling that killed it is an artefact of this POC's client-held
+history and single-shot retry, and does not exist in a server-held-history
+architecture.
 
-That directory is throwaway and nothing in the repository depends on it. If you
-want item 2 back, `git apply item2-marker-correction.patch` restores it exactly,
-five passing tests included.
+It was originally written to the session scratchpad, which was the wrong place —
+every session has correctly treated that directory as throwaway, and a preserved
+artefact in disposable storage is a contradiction. It is now tracked.
 
 ### 8.4 Commands run, for reproduction
 
@@ -640,7 +646,10 @@ directory named in §8.3 and are throwaway.
    it.** That is true in both worlds and it is the deepest finding here: the
    beat that proves the boundary holds only produces its receipt when the model
    volunteers to test the boundary. Certification pass B got it; pass A got it
-   half the time. Nothing in the harness makes it certain.
+   half the time. Nothing in the harness makes it certain. **Now `docs/LESSONS.md`
+   entry 12**, with the fix stated generally: an enforcement receipt must be
+   generated deterministically, which is exactly what `scripts/demo_bypass.sh`
+   already does and the one receipt in the script that cannot fail to appear.
 3. **Step 1's group membership**, §6.2. The verifier's proposal — return
    `flagged_ids`, `quiet_ids`, `flagged_and_quiet_ids` from `get_my_advisees`
    beside the counts — is the fourth iteration of "let the tool compute it", and
