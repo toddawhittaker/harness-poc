@@ -9,7 +9,7 @@ same people. Set in Session 3.
 |---|---|---|---|
 | 6 — record vs pulse | dana | **S-1055, Leon Cline (CS-BS)** | Mid-program: 9 of 24 credits, taking CS-210 now. Next term offers exactly three courses he can take (CS-310, CS-350, CS-410 — all with seats) and exactly one he cannot (CS-460 Capstone, needs CS-310 and CS-350 first). GPA 3.41, logged in 3 days ago, so nothing distracts from the question. |
 | — | — | S-1042, Nathan Osborne | **No longer used by step 6, and deliberately unchanged.** He is near the end of CYB-BS, so his honest answer is "nothing new to register for until CYB-410 and CYB-420 finish". `scripts/seed.py::verify` asserts he still has zero open options, so nobody can quietly retune him into a slide. |
-| 1 | dana | her 25 advisees, 8 quiet | unchanged |
+| 1 | dana | her 25 advisees: **9 flagged, 8 quiet, 6 both** | **Recast in Session 10.** The two sets used to nest exactly — every quiet advisee was also flagged — so `quiet_count` and `flagged_and_quiet_count` were one number about one set of people and the opening sentence had three facts to state, not four. Two of the eight quiet advisees now carry no flag (**S-1049** Krista Leblanc, GPA 1.94, 21 days; **S-1052** Elliot Maldonado, GPA 2.28, 23 days) and two advisees who log in regularly now do (**S-1048** Robert Valdez, GPA 2.79; **S-1051** Wesley Pham, GPA 3.02, joining S-1045). The headline holds at 25 / 9 / 8 and the fourth count becomes 6. `verify()` pins all of it |
 | 5 | noor, then kim | CYB-310-A, then BUS-201-A (refused), then the rollup | unchanged |
 
 `STEP_6_STUDENT` in `scripts/seed.py` is the single source of that id; `verify()`
