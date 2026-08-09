@@ -1368,3 +1368,104 @@ def test_dean_may_read_the_same_section_the_faculty_member_could_not(
         f"Got: {result.text[:300]}"
     )
     assert result.text.strip(), f"the dean's section view came back empty: {result.raw!r}"
+
+
+# --------------------------------------------------------------------------
+# A refusal in the audit trail must always mean somebody was told no.
+#
+# These two run as a pair and only mean something together. The first pins the
+# new behaviour — a program code that does not exist is an input error, not an
+# authorization decision, so it must not paint the audit viewer amber beside
+# the genuine RBAC refusals. The second is the negative control: "error"
+# existing must not have eaten "refused".
+#
+# They assert on `decision` and on a reason PREFIX, never on the whole message,
+# so they pin the contract rather than the wording.
+# --------------------------------------------------------------------------
+
+UNKNOWN_PROGRAM_CODE = "ZZZ-XX"
+UNKNOWN_PROGRAM_REASON_PREFIX = "unknown program code"
+
+
+def kuali_tool_call_row(
+    client: httpx.Client, *, sub: str, tool: str, since: datetime
+) -> dict[str, Any]:
+    """The mcp-kuali tool_call row this test just caused, or a clear failure."""
+    row = wait_for_event(
+        client,
+        lambda event: (
+            event.get("service") == "mcp-kuali"
+            and event.get("event") == "tool_call"
+            and event.get("sub") == sub
+            and (event.get("detail") or {}).get("tool") == tool
+        ),
+        since=since,
+    )
+    assert row is not None, (
+        f"mcp-kuali wrote no tool_call row for {sub} calling {tool}. Every call is "
+        "audited, allowed or refused (SPEC §4.7)."
+    )
+    return row
+
+
+@pytest.mark.session2
+def test_an_unknown_program_code_audits_as_an_error_not_a_refusal(
+    session2_stack: None, http: httpx.Client, token_for: Callable[[str], str]
+) -> None:
+    """kim holds the dean role, so the role gate lets her through and the tool
+    then fails on the argument. That is the model mistyping a program code, not
+    the university telling a dean no, and the trail has to say which."""
+    since = utcnow() - timedelta(seconds=2)
+    with mcp_session(MCP_SERVERS["mcp-kuali"], token_for("kim")) as session:
+        result = session.call_tool(
+            "get_course_outcomes", {"program_code": UNKNOWN_PROGRAM_CODE}
+        )
+
+    assert result.refused, (
+        f"an unknown program code must come back as a tool error. Got: {result.text[:300]}"
+    )
+    assert UNKNOWN_PROGRAM_REASON_PREFIX in result.text, (
+        f"the tool reply must name the bad code, not read like a refusal. "
+        f"Got: {result.text[:300]}"
+    )
+
+    detail = kuali_tool_call_row(
+        http, sub="kim", tool="get_course_outcomes", since=since
+    ).get("detail") or {}
+    assert detail.get("decision") == "error", (
+        "a bad argument must audit as decision 'error'. Auditing it as 'refused' "
+        "paints it amber in the viewer beside the real RBAC refusals, and its honest "
+        f"explanation is 'the caller named a program that does not exist'. Got: {detail!r}"
+    )
+    assert str(detail.get("reason", "")).startswith(UNKNOWN_PROGRAM_REASON_PREFIX), (
+        f"the audit reason must begin {UNKNOWN_PROGRAM_REASON_PREFIX!r}, not an "
+        f"exception class name. Got: {detail.get('reason')!r}"
+    )
+
+
+@pytest.mark.session2
+def test_a_role_refusal_still_audits_as_refused(
+    session2_stack: None, http: httpx.Client, token_for: Callable[[str], str]
+) -> None:
+    """The control for the test above. pat is an adjunct, curriculum is staff-
+    facing, and the role gate runs before the argument is ever looked at — so
+    this is a refusal and must still be recorded as one."""
+    since = utcnow() - timedelta(seconds=2)
+    with mcp_session(MCP_SERVERS["mcp-kuali"], token_for("pat")) as session:
+        result = session.call_tool("get_course_outcomes", {"program_code": "CYB-BS"})
+
+    assert result.refused, (
+        f"pat holds no curriculum role and must be refused. Got: {result.text[:300]}"
+    )
+
+    detail = kuali_tool_call_row(
+        http, sub="pat", tool="get_course_outcomes", since=since
+    ).get("detail") or {}
+    assert detail.get("decision") == "refused", (
+        "a role refusal must still audit as decision 'refused'. Introducing 'error' "
+        f"must not have swallowed the refusals. Got: {detail!r}"
+    )
+    assert str(detail.get("reason", "")).startswith("get_course_outcomes requires"), (
+        "a refusal's audit reason is the message the caller was given, so it names "
+        f"the tool and the role it wanted. Got: {detail.get('reason')!r}"
+    )

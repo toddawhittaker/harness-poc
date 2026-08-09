@@ -22,7 +22,13 @@ from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
 from mcp_auth import TRANSPORT_SECURITY, BearerAuthMiddleware, caller
-from rules import CURRICULUM_ROLES, audited, require_any_role, require_role
+from rules import (
+    CURRICULUM_ROLES,
+    UnknownProgram,
+    audited,
+    require_any_role,
+    require_role,
+)
 
 DB_PATH = Path(os.environ.get("KUALI_DB_PATH", "/data/kuali.db"))
 
@@ -77,7 +83,7 @@ class CatalogProgram(BaseModel):
 def program_name(program_code: str) -> str:
     rows = query("SELECT name FROM programs WHERE code = ?", program_code)
     if not rows:
-        raise ValueError(f"no program with code {program_code}")
+        raise UnknownProgram(f"unknown program code {program_code}")
     return rows[0]["name"]
 
 
