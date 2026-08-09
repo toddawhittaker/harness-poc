@@ -23,8 +23,8 @@ BRAND = Branding(
         "question is on the audit record."
     ),
     starters=[
-        ("Struggling advisees",
-         "Which of my advisees seem to be struggling this term?"),
+        ("Who is struggling",
+         "Which students seem to be struggling this term?"),
         ("Next term",
          "What should S-1055 take next term?"),
         ("Where the jobs are",

@@ -24,7 +24,7 @@ BRAND = Branding(
     ),
     starters=[
         ("Who is struggling",
-         "Which of my advisees seem to be struggling this term?"),
+         "Which students seem to be struggling this term?"),
         ("Engagement this week",
          "How's engagement across all programs this week?"),
         ("Qualification",
