@@ -9,6 +9,10 @@
     --bg: #12151c; --panel: #1a1f2a; --line: #2c3444;
     --text: #e6e9f0; --dim: #8b95a8;
     --ok: #4ade80; --refused: #fbbf24; --failed: #f87171;
+    /* Neutral, on purpose. A bad argument is neither a success nor a refusal,
+       and amber has to keep meaning "somebody was told no". Brighter than
+       --dim so it reads as a value, not as metadata; 8.4:1 on --bg. */
+    --error: #a8b0be;
     /* The single source of truth for the title band's height. The scroll
        container subtracts exactly this, so there is no gap and no overlap. */
     --title-h: 64px;
@@ -60,6 +64,7 @@
   tbody tr.ok td.event { color: var(--ok); }
   tbody tr.refused td.event { color: var(--refused); }
   tbody tr.failed td.event { color: var(--failed); }
+  tbody tr.error td.event { color: var(--error); }
   tbody tr.refused { background: rgba(251, 191, 36, 0.07); }
   tbody tr.failed { background: rgba(248, 113, 113, 0.09); }
   td.event { font-weight: 700; white-space: nowrap; }
@@ -92,6 +97,7 @@
 <script>
   const FAILED = ["auth_failed"];
   const REFUSED = ["refused_at_gate", "router_parse_failed"];
+  const DECISION_CLASS = { ok: "ok", refused: "refused", error: "error" };
 
   const scroller = document.getElementById("scroller");
   const tbody = document.getElementById("rows");
@@ -100,7 +106,10 @@
   function rowClass(ev) {
     if (FAILED.includes(ev.event)) return "failed";
     if (REFUSED.includes(ev.event)) return "refused";
-    if (ev.detail && ev.detail.decision === "refused") return "refused";
+    // A decision we do not recognise reads neutral, never as success. Rows
+    // with no decision at all — router_classified, answer_returned — are green.
+    const decision = ev.detail && ev.detail.decision;
+    if (decision) return DECISION_CLASS[decision] || "error";
     return "ok";
   }
 
@@ -152,7 +161,7 @@
   async function poll() {
     let events;
     try {
-      const res = await fetch("/events?limit=100");
+      const res = await fetch("/events?limit=200");
       events = await res.json();
     } catch (err) {
       counter.textContent = "audit unreachable";
