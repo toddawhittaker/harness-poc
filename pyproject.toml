@@ -27,5 +27,6 @@ testpaths = ["tests"]
 # `-m session2`.
 markers = [
     "session2: covers services that arrive in Session 2 (orchestrator, mcp-*)",
+    "session3: covers the two Chainlit surfaces (apps/ui-advisor, apps/ui-exec)",
     "disruptive: stops and restarts a container mid-suite; always restores it",
 ]

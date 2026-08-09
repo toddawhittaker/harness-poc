@@ -238,6 +238,96 @@ services:
       retries: 3
       start_period: 10s
 
+  # The two surfaces (SPEC §4.9). They differ in theme and header copy and in
+  # nothing else — same image recipe, same environment, same gateway. Neither
+  # holds a model key: the harness owns the agent loop, and that asymmetry is
+  # the multiplexing claim in machine-readable form.
+  #
+  # Run as the host user, like identity-stub and audit: chainlit writes its
+  # translations and upload directory into the bind-mounted app directory, and
+  # root-owned files in your working tree are nobody's idea of a good time.
+  ui-advisor:
+    build:
+      context: .
+      dockerfile: apps/ui-advisor/Dockerfile
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    ports: ["127.0.0.1:8080:8080"]
+    environment:
+      IDENTITY_URL: http://identity-stub:8001
+      GATEWAY_URL: http://gateway:8000
+      # Signs this app's own session cookie, and nothing else — it has no
+      # bearing on the harness JWTs, which identity-stub signs with RS256.
+      # Override it in .env for anything that outlives a demo.
+      CHAINLIT_AUTH_SECRET: ${CHAINLIT_AUTH_SECRET:-harness-poc-demo-cookie-secret-advisor}
+    volumes:
+      - ./apps/ui-advisor:/app/apps/ui-advisor
+    depends_on:
+      identity-stub:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      # The login page. It is served without a token by design, so a 200 here
+      # means the surface is up and can still say no to a bad password.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  ui-exec:
+    build:
+      context: .
+      dockerfile: apps/ui-exec/Dockerfile
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    ports: ["127.0.0.1:8081:8081"]
+    environment:
+      IDENTITY_URL: http://identity-stub:8001
+      GATEWAY_URL: http://gateway:8000
+      CHAINLIT_AUTH_SECRET: ${CHAINLIT_AUTH_SECRET:-harness-poc-demo-cookie-secret-exec}
+    volumes:
+      - ./apps/ui-exec:/app/apps/ui-exec
+    depends_on:
+      identity-stub:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Optional, and off unless asked for: `docker compose --profile tunnel up -d`.
+  # Everything above works on plain localhost ports with the profile off, which
+  # is how this is developed; the LXC deploy is `git pull` and the same command
+  # with the profile on (SPEC §4.10).
+  cloudflared:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    environment:
+      # cloudflared reads TUNNEL_TOKEN from the environment itself, so the token
+      # never appears in the command line and never shows up in `ps`.
+      #
+      # Defaulted rather than required (`:?`): compose interpolates every
+      # service's variables even for profiles that are switched off, so a
+      # required variable here would stop `docker compose up` on a laptop that
+      # is never going to run a tunnel. Empty means cloudflared says so itself,
+      # and only when it is actually asked to start.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
+    volumes:
+      - ./tunnel/config.yml:/etc/cloudflared/config.yml:ro
+    depends_on:
+      ui-advisor:
+        condition: service_healthy
+      ui-exec:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+
   audit:
     build:
       context: .

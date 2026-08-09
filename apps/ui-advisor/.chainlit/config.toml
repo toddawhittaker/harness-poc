@@ -1,0 +1,26 @@
+# Advisor Workspace. Warm palette, light by default — the visible half of
+# "two doors, one harness" (SPEC §4.9). The other half is apps/ui-exec.
+
+[project]
+enable_telemetry = false
+# Nothing is persisted: chat history lives in the browser session and dies with
+# it (SPEC §0 puts persistence out of scope).
+session_timeout = 3600
+user_session_timeout = 43200
+
+[features]
+unsafe_allow_html = false
+latex = false
+
+[UI]
+name = "Advisor Workspace"
+description = "Franklin University AI Harness — advising"
+default_theme = "light"
+# The answer is the point; the model's internal steps are not. A collapsed
+# chain-of-thought panel on a projector reads as clutter.
+cot = "hidden"
+custom_css = "/public/theme.css"
+
+[meta]
+# Chainlit refuses a config file that does not say which version wrote it.
+generated_by = "2.11.1"

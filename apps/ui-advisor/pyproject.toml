@@ -1,0 +1,15 @@
+[project]
+name = "ui-advisor"
+version = "0.1.0"
+description = "Advisor Workspace — a thin surface over the harness (SPEC §4.9)"
+requires-python = "==3.12.*"
+# Two dependencies, and no model client among them. A surface that could call a
+# model would undercut the multiplexing claim: the harness holds the agent loop,
+# and these apps hold a text box (SPEC §10).
+dependencies = [
+    "chainlit>=2.11,<3",
+    "httpx>=0.28",
+]
+
+[tool.uv]
+package = false

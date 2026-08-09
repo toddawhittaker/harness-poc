@@ -1,0 +1,4 @@
+# Chainlit writes these into its working directory on first run. The app dir is
+# bind-mounted for hot reload, so they land in the repo; none of them is source.
+.files/
+.chainlit/translations/

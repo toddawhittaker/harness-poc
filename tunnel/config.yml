@@ -1,0 +1,39 @@
+# cloudflared ingress for the demo host (SPEC §4.10).
+#
+# Three public names, one per thing a room ever sees, and a catch-all that
+# answers 404 rather than guessing:
+#
+#   advisor.<domain>  ->  ui-advisor:8080    the warm surface (demo moments 1, 5, 6)
+#   exec.<domain>     ->  ui-exec:8081       the cool surface (demo moments 2, 3, 7, 8)
+#   audit.<domain>    ->  audit:8030         the receipts (demo moment 9)
+#
+# Nothing else is published. The gateway, the orchestrator, the four MCP servers
+# and identity-stub stay inside the compose network — the demo's one deliberate
+# exception is scripts/demo_bypass.sh, which runs on the host, beside them.
+#
+# Chainlit talks over websockets. cloudflared passes them through with no extra
+# configuration, so there is nothing here about upgrades or timeouts.
+#
+# HOW THIS FILE IS USED, PRECISELY. Cloudflare tunnels come in two kinds.
+# A locally-managed tunnel reads its ingress from this file. A remotely-managed
+# one — which is what TUNNEL_TOKEN gives you, and what docker-compose.yml runs —
+# takes its ingress from the Cloudflare dashboard instead, and this file is then
+# the record of what to enter there: three public hostnames, three services, in
+# this order. Keep the two in step. The compose service mounts this file either
+# way, so switching to a credentials-file tunnel is a command-line change and
+# not a rewrite.
+#
+# Replace <domain> with the real zone before use.
+
+ingress:
+  - hostname: advisor.<domain>
+    service: http://ui-advisor:8080
+
+  - hostname: exec.<domain>
+    service: http://ui-exec:8081
+
+  - hostname: audit.<domain>
+    service: http://audit:8030
+
+  # Anything else is not part of this demo.
+  - service: http_status:404
