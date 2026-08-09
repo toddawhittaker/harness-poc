@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
 from mcp_auth import TRANSPORT_SECURITY, BearerAuthMiddleware, caller
-from rules import audited
+from rules import UnknownOccupation, audited
 
 DB_PATH = Path(os.environ.get("LABOR_DB_PATH", "/data/labor.db"))
 
@@ -82,7 +82,7 @@ async def get_occupation(soc_code: str, ctx: Context) -> Occupation:
     async with audited("get_occupation", claims, {"soc_code": soc_code}):
         rows = query("SELECT * FROM occupations WHERE soc_code = ?", soc_code)
         if not rows:
-            raise ValueError(f"no occupation with SOC code {soc_code}")
+            raise UnknownOccupation(f"unknown SOC code {soc_code}")
         row = rows[0]
         return Occupation(
             soc_code=row["soc_code"], title=row["title"], growth_pct=row["growth_pct"],

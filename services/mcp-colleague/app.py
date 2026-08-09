@@ -22,7 +22,13 @@ from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
 from mcp_auth import TRANSPORT_SECURITY, BearerAuthMiddleware, caller
-from rules import audited, require_advisor_for_record, require_assignment, require_role
+from rules import (
+    UnknownStudent,
+    audited,
+    require_advisor_for_record,
+    require_assignment,
+    require_role,
+)
 
 DB_PATH = Path(os.environ.get("COLLEAGUE_DB_PATH", "/data/colleague.db"))
 
@@ -151,7 +157,7 @@ def student_row(student_id: str) -> sqlite3.Row:
         # Reached only for an id that is genuinely absent. An id belonging to
         # another advisor is refused before it gets here, so this never doubles
         # as a way to probe which ids exist.
-        raise ValueError(f"no student {student_id}")
+        raise UnknownStudent(f"unknown student id {student_id}")
     return rows[0]
 
 

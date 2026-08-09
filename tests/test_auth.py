@@ -43,6 +43,7 @@ import socket
 import subprocess
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -1341,7 +1342,7 @@ def test_dean_asking_for_an_individual_record_gets_the_aggregates_line(
 def test_faculty_is_refused_a_section_they_do_not_teach(
     session2_stack: None, token_for: Callable[[str], str]
 ) -> None:
-    """noor teaches CYB-310-A and BUS-201-B. BUS-201-A belongs to someone else.
+    """noor teaches CYB-310-A and CYB-210-A. BUS-201-A belongs to someone else.
     SPEC §4.6 fixes this sentence word for word."""
     with mcp_session(MCP_SERVERS["mcp-canvas"], token_for("noor")) as session:
         result = session.call_tool("get_section_engagement", {"section_id": NOOR_FOREIGN_SECTION})
@@ -1373,99 +1374,187 @@ def test_dean_may_read_the_same_section_the_faculty_member_could_not(
 # --------------------------------------------------------------------------
 # A refusal in the audit trail must always mean somebody was told no.
 #
-# These two run as a pair and only mean something together. The first pins the
-# new behaviour — a program code that does not exist is an input error, not an
-# authorization decision, so it must not paint the audit viewer amber beside
-# the genuine RBAC refusals. The second is the negative control: "error"
-# existing must not have eaten "refused".
+# All four MCP servers now sort a tool call into the same three tiers, by
+# exception TYPE and never by reading a message: a refusal the rules raised on
+# purpose is `refused`; a caller who named something that does not exist is
+# `error`, with the argument named; a fault in the server is `error` recorded
+# as a bare class name, and the caller gets one fixed sentence. The viewer
+# paints `refused` amber, so this distinction is the only thing keeping a
+# mistyped code out of the row of genuine RBAC refusals it would otherwise sit
+# in during demo moment 9.
 #
-# They assert on `decision` and on a reason PREFIX, never on the whole message,
-# so they pin the contract rather than the wording.
+# The two tests below run as a pair and only mean something together. The first
+# pins the bad-argument tier. The second is the negative control: `error`
+# existing must not have eaten `refused`. Both assert on `decision` and on a
+# reason PREFIX, never on the whole message, so they pin the contract rather
+# than the wording.
+#
+# Every server appears in at least one of the two. Two of the eight cells do
+# not exist, by design rather than by omission, and neither is worth
+# manufacturing:
+#
+#   * mcp-colleague has no reachable bad argument. `require_assignment` runs
+#     before the register is read, so an id belonging to nobody is refused as
+#     "not among your assigned advisees" rather than confirmed absent — the
+#     tools deliberately do not double as a way to probe which ids exist.
+#     `UnknownStudent` is left for the genuine fault it describes.
+#   * mcp-labor refuses nobody. SPEC §4.5 gives its data to every authenticated
+#     role; the mechanism is identical and the answer is always yes.
 # --------------------------------------------------------------------------
 
-UNKNOWN_PROGRAM_CODE = "ZZZ-XX"
-UNKNOWN_PROGRAM_REASON_PREFIX = "unknown program code"
+
+@dataclass(frozen=True)
+class ToolCase:
+    """One tool call, and the audit row it is required to produce."""
+
+    server: str
+    persona: str
+    tool: str
+    args: dict[str, Any]
+    reason_prefix: str
 
 
-def kuali_tool_call_row(
-    client: httpx.Client, *, sub: str, tool: str, since: datetime
+BAD_ARGUMENT_CASES = [
+    ToolCase("mcp-kuali", "kim", "get_course_outcomes",
+             {"program_code": "ZZZ-XX"}, "unknown program code"),
+    ToolCase("mcp-canvas", "kim", "get_section_engagement",
+             {"section_id": "ZZZ-999-Z"}, "unknown section id"),
+    ToolCase("mcp-labor", "pat", "get_occupation",
+             {"soc_code": "99-9999"}, "unknown SOC code"),
+]
+
+ROLE_REFUSAL_CASES = [
+    ToolCase("mcp-kuali", "pat", "get_course_outcomes",
+             {"program_code": "CYB-BS"}, "get_course_outcomes requires"),
+    ToolCase("mcp-canvas", "pat", "get_section_engagement",
+             {"section_id": "CYB-310-A"}, "get_section_engagement requires"),
+    ToolCase("mcp-colleague", "pat", "get_my_advisees",
+             {}, "get_my_advisees requires"),
+]
+
+
+def expected_args_hash(args: dict[str, Any]) -> str:
+    """The correlation key the servers write, derived here independently.
+
+    Two tests in this file call the same tool on the same server as the same
+    persona a second apart, so the tool name alone does not identify a row.
+    Re-deriving the digest rather than importing it also pins the contract: the
+    audit trail's `args_hash` is a stable digest of the sorted arguments, and a
+    change to how it is computed should fail a test.
+    """
+    payload = json.dumps(args, sort_keys=True, default=str).encode()
+    return hashlib.sha256(payload).hexdigest()[:12]
+
+
+def tool_call_row(
+    client: httpx.Client, case: ToolCase, since: datetime
 ) -> dict[str, Any]:
-    """The mcp-kuali tool_call row this test just caused, or a clear failure."""
+    """The tool_call row this case just caused, or a clear failure."""
+    args_hash = expected_args_hash(case.args)
     row = wait_for_event(
         client,
         lambda event: (
-            event.get("service") == "mcp-kuali"
+            event.get("service") == case.server
             and event.get("event") == "tool_call"
-            and event.get("sub") == sub
-            and (event.get("detail") or {}).get("tool") == tool
+            and event.get("sub") == case.persona
+            and (event.get("detail") or {}).get("tool") == case.tool
+            and (event.get("detail") or {}).get("args_hash") == args_hash
         ),
         since=since,
     )
     assert row is not None, (
-        f"mcp-kuali wrote no tool_call row for {sub} calling {tool}. Every call is "
-        "audited, allowed or refused (SPEC §4.7)."
+        f"{case.server} wrote no tool_call row for {case.persona} calling "
+        f"{case.tool}. Every call is audited, allowed or refused."
     )
     return row
 
 
 @pytest.mark.session2
-def test_an_unknown_program_code_audits_as_an_error_not_a_refusal(
-    session2_stack: None, http: httpx.Client, token_for: Callable[[str], str]
+@pytest.mark.parametrize("case", BAD_ARGUMENT_CASES, ids=lambda c: c.server)
+def test_a_bad_argument_audits_as_an_error_not_a_refusal(
+    session2_stack: None, http: httpx.Client, token_for: Callable[[str], str],
+    case: ToolCase,
 ) -> None:
-    """kim holds the dean role, so the role gate lets her through and the tool
-    then fails on the argument. That is the model mistyping a program code, not
-    the university telling a dean no, and the trail has to say which."""
+    """Each persona here holds the role the tool wants, so the role gate lets
+    them through and the tool then fails on the argument. That is the model
+    mistyping a code, not the university telling anybody no, and the trail has
+    to say which."""
     since = utcnow() - timedelta(seconds=2)
-    with mcp_session(MCP_SERVERS["mcp-kuali"], token_for("kim")) as session:
-        result = session.call_tool(
-            "get_course_outcomes", {"program_code": UNKNOWN_PROGRAM_CODE}
-        )
+    with mcp_session(MCP_SERVERS[case.server], token_for(case.persona)) as session:
+        result = session.call_tool(case.tool, case.args)
 
     assert result.refused, (
-        f"an unknown program code must come back as a tool error. Got: {result.text[:300]}"
-    )
-    assert UNKNOWN_PROGRAM_REASON_PREFIX in result.text, (
-        f"the tool reply must name the bad code, not read like a refusal. "
+        f"{case.server}: a bad argument must come back as a tool error. "
         f"Got: {result.text[:300]}"
     )
-
-    detail = kuali_tool_call_row(
-        http, sub="kim", tool="get_course_outcomes", since=since
-    ).get("detail") or {}
-    assert detail.get("decision") == "error", (
-        "a bad argument must audit as decision 'error'. Auditing it as 'refused' "
-        "paints it amber in the viewer beside the real RBAC refusals, and its honest "
-        f"explanation is 'the caller named a program that does not exist'. Got: {detail!r}"
+    assert case.reason_prefix in result.text, (
+        f"{case.server}: the tool reply must name the bad argument, not read like "
+        f"a refusal. Got: {result.text[:300]}"
     )
-    assert str(detail.get("reason", "")).startswith(UNKNOWN_PROGRAM_REASON_PREFIX), (
-        f"the audit reason must begin {UNKNOWN_PROGRAM_REASON_PREFIX!r}, not an "
-        f"exception class name. Got: {detail.get('reason')!r}"
+
+    detail = tool_call_row(http, case, since).get("detail") or {}
+    assert detail.get("decision") == "error", (
+        f"{case.server}: a bad argument must audit as decision 'error'. Auditing "
+        "it as 'refused' paints it amber in the viewer beside the real RBAC "
+        "refusals, and its honest explanation is 'the caller named something that "
+        f"does not exist'. Got: {detail!r}"
+    )
+    assert str(detail.get("reason", "")).startswith(case.reason_prefix), (
+        f"{case.server}: the audit reason must begin {case.reason_prefix!r}, not "
+        f"an exception class name. Got: {detail.get('reason')!r}"
     )
 
 
 @pytest.mark.session2
+@pytest.mark.parametrize("case", ROLE_REFUSAL_CASES, ids=lambda c: c.server)
 def test_a_role_refusal_still_audits_as_refused(
-    session2_stack: None, http: httpx.Client, token_for: Callable[[str], str]
+    session2_stack: None, http: httpx.Client, token_for: Callable[[str], str],
+    case: ToolCase,
 ) -> None:
-    """The control for the test above. pat is an adjunct, curriculum is staff-
-    facing, and the role gate runs before the argument is ever looked at — so
-    this is a refusal and must still be recorded as one."""
+    """The control for the test above. pat is an adjunct and holds none of the
+    roles these tools want, and the role gate runs before the argument is ever
+    looked at — so each of these is a refusal and must still be recorded as
+    one."""
     since = utcnow() - timedelta(seconds=2)
-    with mcp_session(MCP_SERVERS["mcp-kuali"], token_for("pat")) as session:
-        result = session.call_tool("get_course_outcomes", {"program_code": "CYB-BS"})
+    with mcp_session(MCP_SERVERS[case.server], token_for(case.persona)) as session:
+        result = session.call_tool(case.tool, case.args)
 
     assert result.refused, (
-        f"pat holds no curriculum role and must be refused. Got: {result.text[:300]}"
+        f"{case.server}: pat holds none of the roles {case.tool} wants and must be "
+        f"refused. Got: {result.text[:300]}"
     )
 
-    detail = kuali_tool_call_row(
-        http, sub="pat", tool="get_course_outcomes", since=since
-    ).get("detail") or {}
+    detail = tool_call_row(http, case, since).get("detail") or {}
     assert detail.get("decision") == "refused", (
-        "a role refusal must still audit as decision 'refused'. Introducing 'error' "
-        f"must not have swallowed the refusals. Got: {detail!r}"
+        f"{case.server}: a role refusal must still audit as decision 'refused'. "
+        f"Introducing 'error' must not have swallowed the refusals. Got: {detail!r}"
     )
-    assert str(detail.get("reason", "")).startswith("get_course_outcomes requires"), (
-        "a refusal's audit reason is the message the caller was given, so it names "
-        f"the tool and the role it wanted. Got: {detail.get('reason')!r}"
+    assert str(detail.get("reason", "")).startswith(case.reason_prefix), (
+        f"{case.server}: a refusal's audit reason is the message the caller was "
+        f"given, so it names the tool and the role it wanted. "
+        f"Got: {detail.get('reason')!r}"
+    )
+
+
+@pytest.mark.session2
+def test_every_mcp_server_tells_the_caller_the_same_thing_when_it_faults() -> None:
+    """The fixed sentence a fault returns is the one thing all four servers hand
+    to the model, so it must not drift between them. Four copies is the standing
+    trade this repo makes for readable, self-contained servers; a test is what
+    makes the copies safe."""
+    sentences = {}
+    for server in ("mcp-colleague", "mcp-canvas", "mcp-kuali", "mcp-labor"):
+        source = (REPO_ROOT / "services" / server / "rules.py").read_text()
+        namespace: dict[str, Any] = {}
+        for line in source.splitlines():
+            if line.startswith("INTERNAL_ERROR"):
+                exec(line, namespace)  # noqa: S102 — a literal assignment we just matched
+        assert "INTERNAL_ERROR" in namespace, (
+            f"services/{server}/rules.py defines no INTERNAL_ERROR. All four servers "
+            "classify a fault the same way and answer it with the same sentence."
+        )
+        sentences[server] = namespace["INTERNAL_ERROR"]
+
+    assert len(set(sentences.values())) == 1, (
+        f"the four servers' INTERNAL_ERROR sentences have drifted: {sentences!r}"
     )

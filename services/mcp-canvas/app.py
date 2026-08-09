@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
 from mcp_auth import TRANSPORT_SECURITY, BearerAuthMiddleware, caller
-from rules import audited, require_role, require_section_access
+from rules import UnknownSection, audited, require_role, require_section_access
 
 DB_PATH = Path(os.environ.get("CANVAS_DB_PATH", "/data/canvas.db"))
 
@@ -134,7 +134,7 @@ async def get_section_engagement(section_id: str, ctx: Context) -> SectionEngage
         require_section_access(claims, section_id, own_section_ids(claims.sub))
         rows = query("SELECT * FROM sections WHERE id = ?", section_id)
         if not rows:
-            raise ValueError(f"no section {section_id}")
+            raise UnknownSection(f"unknown section id {section_id}")
         section = rows[0]
 
         activity = query("SELECT * FROM activity WHERE section_id = ?", section_id)
