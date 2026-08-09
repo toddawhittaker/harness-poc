@@ -231,9 +231,10 @@ depended on the retry in the first place.
 
 The correction is kept, reverted but intact, as `docs/patches/item2-marker-correction.patch`
 with its five tests. The coupling that killed it here comes from this POC's
-client-held history and single-shot retry; an architecture that holds the
-conversation server-side does not have it, so the MVP should take the patch
-rather than inherit our reversion.
+client-held history and its single allowed regeneration; an architecture that
+holds the conversation server-side, and can re-drive a turn on its own terms,
+does not have it — so the MVP should take the patch rather than inherit our
+reversion. `docs/patches/README.md` names the commit each patch applies to.
 
 **Where.** Session 6, §2.1 (design and tests); Sessions 7–10 (the ledger).
 `services/orchestrator/grounding.py`, about a hundred lines, no dependencies
@@ -417,7 +418,9 @@ Reasoning on: the arithmetic was clean and the refusal went missing.
 
 **Where.** Sessions 5–9 for the defect class; Session 10 for the comparison;
 Session 11 for the behavioural cost and the reversion; `DEMO_VERIFICATION.md`
-for the per-run detail of both certification passes.
+for the per-run detail of both certification passes. The configuration that
+produced the reasoning-on column is kept as `docs/patches/session-11-full.patch`,
+so the comparison can be re-run rather than taken on trust.
 
 **What the MVP should do.** Do not ask a model to do arithmetic that a tool can
 do. Every count, percentage, and overlap that an answer states should be a field

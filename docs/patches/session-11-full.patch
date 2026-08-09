@@ -1,0 +1,474 @@
+diff --git a/.env.example b/.env.example
+index ebd9d7a..d3de01c 100644
+--- a/.env.example
++++ b/.env.example
+@@ -6,7 +6,17 @@ DEEPSEEK_API_KEY=
+ DEEPSEEK_BASE_URL=https://api.deepseek.com
+ ROUTER_MODEL=deepseek-v4-flash
+ AGENT_MODEL=deepseek-v4-pro
+-AGENT_THINKING=false
++
++# Extended-reasoning mode, one flag per model — they are NOT one switch.
++# AGENT_THINKING governs the orchestrator's agent; ROUTER_THINKING governs the
++# gateway's router. The agent runs with reasoning on: Session 10's A/B found
++# the arithmetic defect class (wrong counts, wrong coverage tallies, arguing
++# with itself on screen) in 5 of 10 runs with it off and 0 of 10 with it on,
++# for about 7.5 seconds more per answer. The router stays off — it returns a
++# small strict-JSON verdict and deliberation buys it nothing. Compose sets each
++# flag only on the service that reads it, so neither can flip the other.
++AGENT_THINKING=true
++ROUTER_THINKING=false
+ 
+ # Token audience checked independently by every service.
+ JWT_AUDIENCE=harness-poc
+diff --git a/SPEC.md b/SPEC.md
+index 5cbfd5a..6ef12f6 100644
+--- a/SPEC.md
++++ b/SPEC.md
+@@ -45,6 +45,8 @@ AGENT_MODEL=deepseek-v4-pro
+ 
+ Pydantic AI: construct with the OpenAI-compatible model class pointed at `DEEPSEEK_BASE_URL`. Non-thinking mode by default for both (demo latency matters); `AGENT_THINKING=false` env flag to flip later.
+ 
++**Deviation, recorded (Session 11):** the POC as shipped runs the orchestrator's agent with extended reasoning (`AGENT_THINKING=true`), chosen on Session 10's A/B evidence — the arithmetic defect class was absent in 10 of 10 reasoning-mode runs, against 5 of 10 runs stating a wrong number without it, at roughly 7.5 seconds more per answer — while the router stays non-thinking under its own `ROUTER_THINKING=false` flag.
++
+ **Prompt-cache discipline (applies to every model call):** DeepSeek caches by exact prompt prefix automatically. Therefore: system prompts are static strings — no f-strings interpolating user, date, or role into them. Tool schemas registered in a fixed, sorted order. All dynamic context (persona name, roles, the user's question) enters as messages *after* the static prefix. This is a hard rule; the auth-reviewer agent checks it.
+ 
+ ## 2. Repository layout (monorepo)
+diff --git a/docker-compose.yml b/docker-compose.yml
+index ec4942e..b76abab 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -62,7 +62,11 @@ services:
+       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env}
+       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+       ROUTER_MODEL: ${ROUTER_MODEL:-deepseek-v4-flash}
+-      AGENT_THINKING: ${AGENT_THINKING:-false}
++      # The gateway builds only the router, so only the router's flag is set
++      # here — AGENT_THINKING is not in this service's environment at all, and
++      # therefore cannot reach the router by any route. See the note on
++      # ROUTER_THINKING in libs/harness_models/factory.py.
++      ROUTER_THINKING: ${ROUTER_THINKING:-false}
+     volumes:
+       - ./services/gateway:/app/services/gateway
+       - ./libs:/app/libs
+@@ -98,7 +102,12 @@ services:
+       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env}
+       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+       AGENT_MODEL: ${AGENT_MODEL:-deepseek-v4-pro}
+-      AGENT_THINKING: ${AGENT_THINKING:-false}
++      # Extended reasoning ON for the agent, and the default is `true` rather
++      # than `false` on purpose: this is the configuration Session 10 measured
++      # and Session 11 certified, so a plain `docker compose up -d` on a machine
++      # with no .env reproduces it rather than quietly shipping the other arm.
++      # SPEC §1 records the deviation.
++      AGENT_THINKING: ${AGENT_THINKING:-true}
+     volumes:
+       - ./services/orchestrator:/app/services/orchestrator
+       - ./libs:/app/libs
+diff --git a/libs/harness_models/src/harness_models/__init__.py b/libs/harness_models/src/harness_models/__init__.py
+index 0b5fa30..35abc6b 100644
+--- a/libs/harness_models/src/harness_models/__init__.py
++++ b/libs/harness_models/src/harness_models/__init__.py
+@@ -6,8 +6,11 @@ never build a model client yourself.
+ 
+ from .factory import (
+     AGENT_MODEL,
+-    MODEL_SETTINGS,
++    AGENT_SETTINGS,
++    AGENT_THINKING,
+     ROUTER_MODEL,
++    ROUTER_SETTINGS,
++    ROUTER_THINKING,
+     UsageStats,
+     agent_model,
+     router_model,
+@@ -16,8 +19,11 @@ from .factory import (
+ 
+ __all__ = [
+     "AGENT_MODEL",
+-    "MODEL_SETTINGS",
++    "AGENT_SETTINGS",
++    "AGENT_THINKING",
+     "ROUTER_MODEL",
++    "ROUTER_SETTINGS",
++    "ROUTER_THINKING",
+     "UsageStats",
+     "agent_model",
+     "router_model",
+diff --git a/libs/harness_models/src/harness_models/factory.py b/libs/harness_models/src/harness_models/factory.py
+index 8ef848a..ddcf87d 100644
+--- a/libs/harness_models/src/harness_models/factory.py
++++ b/libs/harness_models/src/harness_models/factory.py
+@@ -25,8 +25,21 @@ API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+ ROUTER_MODEL = os.environ.get("ROUTER_MODEL", "deepseek-v4-flash")
+ AGENT_MODEL = os.environ.get("AGENT_MODEL", "deepseek-v4-pro")
+ 
+-# SPEC §1: non-thinking by default for BOTH models, because demo latency
+-# matters. AGENT_THINKING=true flips both back on.
++# Extended-reasoning mode, one flag per model. ONE FLAG PER MODEL IS THE POINT:
++# a single flag governing both is how Session 10's A/B nearly measured one thing
++# and shipped another. That session ran the agent in reasoning mode by
++# recreating only the orchestrator, so the gateway's router kept the value it
++# was built with and stayed non-thinking — which is what the numbers describe.
++# With one shared flag, a later `docker compose up -d` would have put the router
++# into reasoning mode too, silently, and nobody would have been measuring that.
++#
++# SPEC §1 mandates non-thinking by default for both. AGENT_THINKING is a
++# recorded deviation from it (SPEC §1, and docs/LESSONS.md entry 9): the agent
++# ships with reasoning ON, because the arithmetic defect class that survived
++# five sessions of prompt work was absent from 10 of 10 reasoning-mode runs.
++# ROUTER_THINKING stays off — the router emits a small strict-JSON verdict and
++# has never got one wrong for want of deliberation, so its share of the latency
++# bill buys nothing.
+ #
+ # The switch is DeepSeek's top-level `thinking` object — {"type": "enabled" |
+ # "disabled"} — documented in the create-chat-completion request schema at
+@@ -38,14 +51,25 @@ AGENT_MODEL = os.environ.get("AGENT_MODEL", "deepseek-v4-pro")
+ # verbatim into the request body. Note there is no `openai_chat_extra_body`
+ # setting despite what older snippets suggest; `extra_body` on the base
+ # ModelSettings is the field.
+-THINKING = os.environ.get("AGENT_THINKING", "false").strip().lower() in {"1", "true", "yes", "on"}
++def _thinking(name: str, default: str) -> bool:
++    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
++
++
++AGENT_THINKING = _thinking("AGENT_THINKING", "false")
++ROUTER_THINKING = _thinking("ROUTER_THINKING", "false")
++
++
++def _settings(thinking: bool) -> ModelSettings:
++    return ModelSettings(
++        extra_body={"thinking": {"type": "enabled" if thinking else "disabled"}}
++    )
++
+ 
+-MODEL_SETTINGS = ModelSettings(
+-    extra_body={"thinking": {"type": "enabled" if THINKING else "disabled"}}
+-)
++AGENT_SETTINGS = _settings(AGENT_THINKING)
++ROUTER_SETTINGS = _settings(ROUTER_THINKING)
+ 
+ 
+-def _model(name: str) -> OpenAIChatModel:
++def _model(name: str, settings: ModelSettings) -> OpenAIChatModel:
+     """One DeepSeek model client, settings baked in.
+ 
+     Settings are attached to the model object rather than passed at each
+@@ -55,18 +79,18 @@ def _model(name: str) -> OpenAIChatModel:
+     return OpenAIChatModel(
+         name,
+         provider=OpenAIProvider(base_url=BASE_URL, api_key=API_KEY),
+-        settings=MODEL_SETTINGS,
++        settings=settings,
+     )
+ 
+ 
+ def router_model() -> OpenAIChatModel:
+-    """The gateway's triage model (SPEC §4.2)."""
+-    return _model(ROUTER_MODEL)
++    """The gateway's triage model (SPEC §4.2). Reads ROUTER_THINKING only."""
++    return _model(ROUTER_MODEL, ROUTER_SETTINGS)
+ 
+ 
+ def agent_model() -> OpenAIChatModel:
+-    """The orchestrator's execution model (SPEC §4.3)."""
+-    return _model(AGENT_MODEL)
++    """The orchestrator's execution model (SPEC §4.3). Reads AGENT_THINKING only."""
++    return _model(AGENT_MODEL, AGENT_SETTINGS)
+ 
+ 
+ class UsageStats(BaseModel):
+diff --git a/services/audit/viewer.html b/services/audit/viewer.html
+index 30f536f..d13ad12 100644
+--- a/services/audit/viewer.html
++++ b/services/audit/viewer.html
+@@ -172,6 +172,9 @@
+     // and it carries no decision — so it read green and no chip could select
+     // it. It is not a success and it is not a refusal: it is the grey class.
+     if (ev.event === "answer_ungrounded") return "error";
++    // Same reasoning for the guard's scoped correction: the reply went out, but
++    // it went out with a citation the harness rewrote. Not a success, grey.
++    if (ev.event === "answer_marker_corrected") return "error";
+     // A decision we do not recognise reads neutral, never as success. Rows
+     // with no decision at all — router_classified, answer_returned — are green.
+     const decision = ev.detail && ev.detail.decision;
+diff --git a/services/orchestrator/app.py b/services/orchestrator/app.py
+index 40d62b4..49912d7 100644
+--- a/services/orchestrator/app.py
++++ b/services/orchestrator/app.py
+@@ -376,13 +376,36 @@ async def chat(
+             # The groundedness guard (SPEC §4.3). Inside the stack because the
+             # second attempt needs the same live MCP sessions — the point of
+             # regenerating is that the model can call the tool it skipped.
++            #
++            # `answer` rather than result.output from here down: the correction
++            # branch below returns a rewritten reply, and the caller must be
++            # given the corrected text rather than the one the model wrote.
++            answer = result.output
+             for attempt in range(1, GROUNDING_ATTEMPTS + 1):
+                 # Executed tools only. A call to a tool this caller was never
+                 # offered reached no server, so it cannot make a citation true —
+                 # judging the reply against it would let a phantom call ground a
+                 # marker for a server that never answered.
+                 executed, _unoffered = executed_and_unoffered(tools_called(result), allowed)
+-                verdict = grounding.check(result.output, servers_reached(executed))
++                ran = servers_reached(executed)
++
++                # One server ran, so a marker naming anything else is wrong and
++                # the request itself says what it should have been. Correct it
++                # and carry on — no regeneration, and the reply is otherwise
++                # untouched. Every other case returns None and nothing happens.
++                correction = grounding.correct_single_server_markers(answer, ran)
++                if correction is not None:
++                    answer = correction.reply
++                    await audit_event(
++                        "answer_marker_corrected", sub=claims.sub, roles=claims.roles,
++                        detail={
++                            "from_markers": list(correction.from_markers),
++                            "to_marker": correction.to_marker,
++                            "attempt": attempt,
++                        },
++                    )
++
++                verdict = grounding.check(answer, ran)
+                 if verdict.ok:
+                     break
+                 last = attempt == GROUNDING_ATTEMPTS
+@@ -408,6 +431,7 @@ async def chat(
+                     REGROUND_INSTRUCTION.format(problem=verdict.reason),
+                     message_history=result.all_messages(),
+                 )
++                answer = result.output
+     except Exception as exc:  # noqa: BLE001 — every outcome leaves a receipt
+         # Without this, a model timeout or an unreachable MCP server is a bare
+         # 500 and the audit page has nothing to say about it. Every other
+@@ -433,7 +457,7 @@ async def chat(
+     # The model's text is dropped when the guard declined it, and the tool rows
+     # below are still written: the calls happened, and a request that produced
+     # an answer nobody may read is exactly the one the audit page should show.
+-    reply = UNGROUNDED_REPLY if declined else result.output
++    reply = UNGROUNDED_REPLY if declined else answer
+ 
+     for name in tools_used:
+         # The MCP server audits this call too, under its own service name. Two
+diff --git a/services/orchestrator/grounding.py b/services/orchestrator/grounding.py
+index 1334e18..7e476dc 100644
+--- a/services/orchestrator/grounding.py
++++ b/services/orchestrator/grounding.py
+@@ -24,6 +24,18 @@ Deliberately NOT checked here: whether the marker on a given sentence is the
+ the system prompt's job, and a guard that guessed at it would start rewriting
+ correct answers.
+ 
++ONE SCOPED EXCEPTION, and the scope is the whole safety argument
++(`correct_single_server_markers`). When exactly ONE server ran, there is no
++guessing left to do: every fact in the reply came from that server, so any
++marker naming a different one — or naming no server at all, like the
++`[cyb-bs outcomes]` Session 10 recorded — is wrong in a way the request itself
++settles. Those markers are rewritten to the one server that answered and the
++reply is returned; nothing else about it changes, and a correction is audited
++so the rewrite is on the record rather than invisible. When zero or two or more
++servers ran, this function does nothing at all and the paragraph above stands
++unaltered: with two servers there is a genuine question of which fact came from
++which, and that is exactly the guess this guard will not make.
++
+ No imports beyond the standard library, on purpose: tests/test_auth.py loads
+ this file directly (the test workspace carries neither fastapi nor pydantic-ai),
+ so the guard under test is this code and not a copy of it.
+@@ -42,6 +54,18 @@ MARKERS: frozenset[str] = frozenset({"colleague", "canvas", "kuali", "labor"})
+ 
+ _MARKER = re.compile(r"\[([A-Za-z-]+)\]")
+ 
++# Every bracket that is being used as a citation, for the single-server
++# correction only — `check` never sees this pattern. Wider than _MARKER because
++# the thing being corrected includes markers that name no server at all, and
++# fenced in three ways so it cannot eat prose:
++#
++#   (?!\()   a markdown link, [Information Security Analysts](https://…), is
++#            not a citation and must survive untouched;
++#   [A-Za-z] then 2-39 more, so "[x]" and "[3]" — checkbox and footnote — are
++#            not markers, while every real one ("kuali", "cyb-bs outcomes") is;
++#   no newline inside, so a bracket left open never swallows a paragraph.
++_BRACKET = re.compile(r"\[([A-Za-z][A-Za-z0-9 /&'-]{2,39})\](?!\()")
++
+ # A digit alone means nothing — "$120,360" is a wage and wages come from labor.
+ # A digit next to any of these words is a claim about people or rooms, which is
+ # the thing that must never be composed. Kept as one flat list rather than
+@@ -70,6 +94,57 @@ class Verdict:
+     reason: str = ""
+ 
+ 
++@dataclass(frozen=True)
++class Correction:
++    """A reply whose markers were rewritten, and the record of the rewrite.
++
++    `from_markers` is what the reply claimed, deduplicated and in order of first
++    appearance; `to_marker` is the one server that actually answered. Both land
++    in the audit detail, so the page shows which claim of provenance was
++    repaired and what it was repaired to.
++    """
++
++    reply: str
++    from_markers: tuple[str, ...]
++    to_marker: str
++
++
++def bracket_markers(reply: str) -> tuple[str, ...]:
++    """Every bracket being used as a citation, in order, duplicates kept."""
++    return tuple(match.group(1) for match in _BRACKET.finditer(reply))
++
++
++def correct_single_server_markers(
++    reply: str, servers_that_ran: Collection[str]
++) -> Correction | None:
++    """Rewrite the markers of a one-server reply. None when it does not apply.
++
++    Applies only when exactly one server ran and the reply's markers do not all
++    already name it. Returns None — meaning "leave this alone, byte for byte" —
++    for every other case: zero servers, two or more servers, a reply with no
++    markers at all, and a reply whose markers are already correct.
++
++    A reply with no markers is never given one. Adding a citation would be the
++    guard asserting provenance on the model's behalf, which is the opposite of
++    what it is for; correcting a marker only moves a claim the reply already
++    made onto the server that can actually support it.
++    """
++    ran = set(servers_that_ran)
++    if len(ran) != 1:
++        return None
++    server = next(iter(ran))
++
++    found = bracket_markers(reply)
++    if not found or all(name.lower() == server for name in found):
++        return None
++
++    return Correction(
++        reply=_BRACKET.sub(f"[{server}]", reply),
++        from_markers=tuple(dict.fromkeys(found)),
++        to_marker=server,
++    )
++
++
+ def cited_servers(reply: str) -> tuple[str, ...]:
+     """Distinct citation markers in the reply, in the order they first appear."""
+     found: list[str] = []
+diff --git a/tests/test_orchestrator_grounding.py b/tests/test_orchestrator_grounding.py
+index 5f2417c..dd3f8a7 100644
+--- a/tests/test_orchestrator_grounding.py
++++ b/tests/test_orchestrator_grounding.py
+@@ -102,6 +102,116 @@ HONEST_INABILITY = (
+ )
+ 
+ 
++# Session 10, step 5a run 3, the shape that cost the beat its answer: noor asks
++# about her own section, mcp-canvas answers, and the reply cites [colleague].
++# Twice, so the guard declined and the user got the flat sentence.
++WRONG_SERVER_MARKER = (
++    "CYB-310-A is in good shape this week. 21 of 24 students logged in within "
++    "the last seven days [colleague], and there are 4 missing submissions "
++    "across the section [colleague]."
++)
++
++# Session 10, step 7 run 1: the model wrote a description of the data instead of
++# the name of the server that returned it. No server is named, so `check` cannot
++# see it at all — this is the markerless blind spot wearing a costume.
++DESCRIPTIVE_MARKER = (
++    "The Cybersecurity BS covers all 8 skills Information Security Analysts "
++    "need [cyb-bs outcomes], and 3 of the 6 a Network and Computer Systems "
++    "Administrator needs [course outcomes]."
++)
++
++# Two servers ran and each marker names one of them. Which fact came from which
++# is a real question here, and the correction branch must not answer it.
++TWO_SERVER_MIXED = (
++    "Information Security Analysts are growing at 32% [labor], and the "
++    "Cybersecurity BS teaches all 8 of the skills the role asks for [kuali]."
++)
++
++
++def test_a_wrong_server_marker_is_corrected_when_one_server_ran(grounding: Any) -> None:
++    """The Session 10 regression, closed: canvas answered, so [colleague] is [canvas]."""
++    correction = grounding.correct_single_server_markers(
++        WRONG_SERVER_MARKER, servers_that_ran={"canvas"})
++
++    assert correction is not None, (
++        "one server ran and the reply cited another; that is not a guess, it is "
++        "a fact the request settles"
++    )
++    assert correction.from_markers == ("colleague",), correction.from_markers
++    assert correction.to_marker == "canvas"
++    assert "[colleague]" not in correction.reply
++    assert correction.reply.count("[canvas]") == 2, (
++        "every marker is corrected, not just the first"
++    )
++    # Nothing but the markers moved.
++    assert correction.reply == WRONG_SERVER_MARKER.replace("[colleague]", "[canvas]")
++    # And the corrected reply is grounded, which is the point of correcting it.
++    assert grounding.check(correction.reply, servers_that_ran={"canvas"}).ok
++
++
++def test_a_descriptive_marker_is_corrected_when_one_server_ran(grounding: Any) -> None:
++    """A marker naming no server at all — the blind spot `check` cannot see."""
++    assert grounding.check(DESCRIPTIVE_MARKER, servers_that_ran={"kuali"}).ok, (
++        "precondition: check passes this reply, because it names no server to "
++        "contradict — which is exactly why the correction branch has to catch it"
++    )
++
++    correction = grounding.correct_single_server_markers(
++        DESCRIPTIVE_MARKER, servers_that_ran={"kuali"})
++
++    assert correction is not None, "a descriptive marker is still a wrong marker"
++    assert correction.from_markers == ("cyb-bs outcomes", "course outcomes"), (
++        correction.from_markers
++    )
++    assert correction.to_marker == "kuali"
++    assert correction.reply.count("[kuali]") == 2
++    assert "outcomes]" not in correction.reply
++
++
++def test_two_servers_leave_the_reply_byte_for_byte_alone(grounding: Any) -> None:
++    """With two servers there is a real question of which is which. Do not guess."""
++    for ran in ({"kuali", "labor"}, {"canvas", "colleague", "kuali", "labor"}):
++        assert grounding.correct_single_server_markers(TWO_SERVER_MIXED, ran) is None
++
++    # Including the case where a marker IS wrong: two servers ran, a third is
++    # cited. That is `check`'s job, and its verdict must be unchanged.
++    verdict = grounding.check(TWO_SERVER_MIXED, servers_that_ran={"kuali", "canvas"})
++    assert not verdict.ok and verdict.markers == ("labor",), verdict.markers
++
++    # Zero servers ran: the fabrication path, also untouched.
++    assert grounding.correct_single_server_markers(FABRICATED, set()) is None
++    assert not grounding.check(FABRICATED, servers_that_ran=set()).ok
++
++
++def test_a_reply_with_no_markers_is_never_given_one(grounding: Any) -> None:
++    """Correction replaces markers. It does not add them, in any case."""
++    uncited_but_grounded = (
++        "CYB-310-A is in good shape this week. 21 of 24 students logged in "
++        "within the last seven days, and there are 4 missing submissions."
++    )
++    for ran in (set(), {"canvas"}, {"canvas", "colleague"}):
++        assert grounding.correct_single_server_markers(uncited_but_grounded, ran) is None
++    assert grounding.correct_single_server_markers(HONEST_INABILITY, {"canvas"}) is None
++
++    # A markdown link is not a citation and must survive a correction pass.
++    linked = "See [the occupation page](https://example.org/soc) [colleague]."
++    correction = grounding.correct_single_server_markers(linked, {"labor"})
++    assert correction is not None
++    assert correction.from_markers == ("colleague",)
++    assert "[the occupation page](https://example.org/soc)" in correction.reply
++
++
++def test_a_correct_single_server_reply_passes_untouched(grounding: Any) -> None:
++    """Markers already naming the one server that ran: nothing to correct."""
++    assert grounding.correct_single_server_markers(
++        RELAYED_REFUSAL, servers_that_ran={"canvas"}) is None
++    assert grounding.check(RELAYED_REFUSAL, servers_that_ran={"canvas"}).ok
++
++    # Case is not a difference. [Canvas] is the same claim as [canvas].
++    assert grounding.correct_single_server_markers(
++        RELAYED_REFUSAL.replace("[canvas]", "[Canvas]"), {"canvas"}) is None
++
++
+ def test_an_ungrounded_reply_is_caught_by_the_guard(grounding: Any) -> None:
+     """Both failure kinds: a false marker, and figures with nothing behind them."""
+     # (1) No tool ran at all, and the reply claims two servers.

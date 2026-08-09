@@ -570,24 +570,36 @@ demo moment 9 points at are complete.
 
 ### 8.3 The reverted work is preserved, in the repository
 
-`docs/patches/item2-marker-correction.patch` — 294 lines: `grounding.py`,
-`app.py`, `viewer.html`, and the five tests. `git apply` restores item 2
-exactly, five passing tests included.
+Both patches are tracked under `docs/patches/`, and they do **not** share a base
+commit — the README says which is which, and both were verified rather than
+assumed:
 
 ```
 $ git apply --check docs/patches/item2-marker-correction.patch
 APPLIES CLEANLY to 0e08b1c
+
+$ git apply --check docs/patches/session-11-full.patch          # in a worktree at 1b55ba5
+APPLIES CLEANLY to 1b55ba5
 ```
 
-`docs/patches/README.md` says in three sentences what it is, that it applies to
-`0e08b1c`, and why it was reverted — including the part that matters to the MVP
-team: the coupling that killed it is an artefact of this POC's client-held
-history and single-shot retry, and does not exist in a server-held-history
-architecture.
+- **`item2-marker-correction.patch`** — 294 lines: `grounding.py`, `app.py`,
+  `viewer.html`, and the five tests. Applies to `0e08b1c`, which is `main` as it
+  stands. `git apply` restores item 2 exactly, five passing tests included.
+- **`session-11-full.patch`** — 474 lines: the complete experimental
+  configuration as measured, against the pre-session commit `1b55ba5`. The
+  correction plus the thinking-flag split plus `AGENT_THINKING=true`. This is
+  what to apply to reproduce §5's measurements rather than take them on trust.
 
-It was originally written to the session scratchpad, which was the wrong place —
-every session has correctly treated that directory as throwaway, and a preserved
-artefact in disposable storage is a contradiction. It is now tracked.
+`docs/patches/README.md` covers both: what each is, the commit it applies to,
+and why the work was reverted — including the part that matters to the MVP team,
+that the coupling which killed it is an artefact of this POC's client-held
+history and its single allowed regeneration, and does not exist in a
+server-held-history architecture.
+
+Both were originally written to the session scratchpad, which was the wrong
+place — every session has correctly treated that directory as throwaway, and a
+preserved artefact in disposable storage is a contradiction. They are now
+tracked.
 
 ### 8.4 Commands run, for reproduction
 
