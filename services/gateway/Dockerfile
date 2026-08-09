@@ -11,6 +11,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     PYTHONUNBUFFERED=1
 
 COPY libs/harness_auth /app/libs/harness_auth
+COPY libs/harness_models /app/libs/harness_models
 
 WORKDIR /app/services/gateway
 COPY services/gateway/pyproject.toml services/gateway/uv.lock ./

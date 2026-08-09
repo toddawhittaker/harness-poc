@@ -1,0 +1,20 @@
+[project]
+name = "mcp-colleague"
+version = "0.1.0"
+description = "Fake SIS, real enforcement (SPEC §4.4)"
+requires-python = "==3.12.*"
+dependencies = [
+    # SPEC §1, as amended: pinned below 2.x for the FastMCP API. 1.x is in
+    # maintenance mode and that stability is the point for this POC. Do not
+    # upgrade to 2.x (which renames FastMCP to MCPServer) or substitute the
+    # standalone fastmcp package.
+    "mcp>=1.29,<2",
+    "uvicorn[standard]>=0.34",
+    "harness-auth",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+harness-auth = { path = "../../libs/harness_auth", editable = true }

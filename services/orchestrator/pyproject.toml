@@ -1,0 +1,20 @@
+[project]
+name = "orchestrator"
+version = "0.1.0"
+description = "The harness, always live (SPEC §4.3)"
+requires-python = "==3.12.*"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "httpx>=0.28",
+    "pyyaml>=6.0",
+    "harness-auth",
+    "harness-models",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+harness-auth = { path = "../../libs/harness_auth", editable = true }
+harness-models = { path = "../../libs/harness_models", editable = true }

@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]>=0.34",
     "httpx>=0.28",
     "harness-auth",
+    "harness-models",
 ]
 
 [tool.uv]
@@ -15,3 +16,4 @@ package = false
 
 [tool.uv.sources]
 harness-auth = { path = "../../libs/harness_auth", editable = true }
+harness-models = { path = "../../libs/harness_models", editable = true }

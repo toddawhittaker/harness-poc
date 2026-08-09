@@ -1,0 +1,115 @@
+"""The one place model clients are built (SPEC §1).
+
+Two services call models: the gateway (the router, on ROUTER_MODEL) and the
+orchestrator (the agent, on AGENT_MODEL). Both get their model from here, fully
+configured. No call site anywhere passes a base URL, an API key, a model name,
+or a thinking-mode setting — if you find yourself wanting to, the setting
+belongs in this file instead.
+
+That rule is not tidiness. Model configuration drifting between two call sites
+is how one service quietly ends up in thinking mode, paying reasoning-token
+prices and a second of latency, while the demo blames the network.
+"""
+
+from __future__ import annotations
+
+import os
+
+from pydantic import BaseModel
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.settings import ModelSettings
+
+BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+ROUTER_MODEL = os.environ.get("ROUTER_MODEL", "deepseek-v4-flash")
+AGENT_MODEL = os.environ.get("AGENT_MODEL", "deepseek-v4-pro")
+
+# SPEC §1: non-thinking by default for BOTH models, because demo latency
+# matters. AGENT_THINKING=true flips both back on.
+#
+# The switch is DeepSeek's top-level `thinking` object — {"type": "enabled" |
+# "disabled"} — documented in the create-chat-completion request schema at
+# api-docs.deepseek.com. It defaults to "enabled" server-side, so non-thinking
+# is something we must send, not something we get by saying nothing.
+#
+# Pydantic AI has no named setting for it (it is provider-specific), so it
+# rides in ModelSettings.extra_body, which the OpenAI-compatible model forwards
+# verbatim into the request body. Note there is no `openai_chat_extra_body`
+# setting despite what older snippets suggest; `extra_body` on the base
+# ModelSettings is the field.
+THINKING = os.environ.get("AGENT_THINKING", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+MODEL_SETTINGS = ModelSettings(
+    extra_body={"thinking": {"type": "enabled" if THINKING else "disabled"}}
+)
+
+
+def _model(name: str) -> OpenAIChatModel:
+    """One DeepSeek model client, settings baked in.
+
+    Settings are attached to the model object rather than passed at each
+    `agent.run(...)`, so a call site cannot forget them or override them by
+    accident.
+    """
+    return OpenAIChatModel(
+        name,
+        provider=OpenAIProvider(base_url=BASE_URL, api_key=API_KEY),
+        settings=MODEL_SETTINGS,
+    )
+
+
+def router_model() -> OpenAIChatModel:
+    """The gateway's triage model (SPEC §4.2)."""
+    return _model(ROUTER_MODEL)
+
+
+def agent_model() -> OpenAIChatModel:
+    """The orchestrator's execution model (SPEC §4.3)."""
+    return _model(AGENT_MODEL)
+
+
+class UsageStats(BaseModel):
+    """What one model call cost, in the shape the audit detail records.
+
+    HOW TO READ THESE NUMBERS. DeepSeek bills cache hits at roughly a fiftieth
+    of cache misses, so the hit/miss split is the number that says whether
+    prompt-cache discipline (SPEC §1: static prefixes, dynamic content in
+    messages after them) is actually holding.
+
+    Reason about cache behaviour ONLY from prompt_cache_hit_tokens and
+    prompt_cache_miss_tokens — never from prompt_tokens. deepseek-v4-flash
+    prepends its own prompt server-side, so prompt_tokens does not equal the
+    tokens we sent, and inferring "the prefix must have changed" from a moved
+    prompt_tokens count will send you hunting a bug that is not there. The
+    hit/miss fields describe the cache directly; the totals do not.
+
+    A second identical question reporting zero hits means dynamic content
+    contaminated a static prefix. That is a build failure, not a footnote.
+    """
+
+    prompt_cache_hit_tokens: int = 0
+    prompt_cache_miss_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
+def usage_stats(usage: object) -> UsageStats:
+    """Read a Pydantic AI RunUsage into UsageStats.
+
+    DeepSeek's two cache counters arrive only inside the usage `details`
+    mapping — Pydantic AI's own `cache_read_tokens` field stays zero for this
+    provider, because it is populated from the nested cache shapes Anthropic
+    and OpenAI use. Reading the wrong field yields a confident, permanent zero,
+    which would make the cache check in the demo verifier meaningless.
+
+    Every read is defensive: a provider that omits a field must produce a zero,
+    never an exception on the audit path.
+    """
+    details = getattr(usage, "details", None) or {}
+    return UsageStats(
+        prompt_cache_hit_tokens=int(details.get("prompt_cache_hit_tokens", 0)),
+        prompt_cache_miss_tokens=int(details.get("prompt_cache_miss_tokens", 0)),
+        prompt_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+        completion_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+    )

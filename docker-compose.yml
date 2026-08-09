@@ -1,11 +1,23 @@
-# harness-poc — Session 1: identity-stub, gateway (echo mode), audit.
-# Session 2 adds orchestrator and the four mcp-* servers; Session 3 adds the
-# two Chainlit apps and the cloudflared tunnel profile.
+# harness-poc — Session 2: identity-stub, gateway (router), orchestrator, the
+# four mcp-* servers, audit. Session 3 adds the two Chainlit apps and the
+# cloudflared tunnel profile.
 #
-# Every service builds from the repo root so the libs/harness_auth path
-# dependency resolves. ./data is a bind mount, not a named volume: scripts/seed.py
+# Every service builds from the repo root so the libs/ path dependencies
+# resolve. ./data is a bind mount, not a named volume: scripts/seed.py
 # runs on the host and writes the same files the services read, and the JWT
 # keypair persists there across restarts.
+#
+# HEALTHCHECKS EXERCISE A REAL ENDPOINT, NOT A PORT OR A PROCESS. A listening
+# socket proves only that something bound it; a worker wedged mid-request still
+# holds the port and still passes a port check. So each probe fetches a URL the
+# service actually has to serve, and urlopen raises on a connection failure, on
+# a timeout, and on any status >= 400 — an uncaught exception exits nonzero, and
+# that is the whole check.
+#
+# urllib rather than `curl -sf`: python:3.12-slim carries neither curl nor wget,
+# and adding them would mean rebuilding every image for a liveness probe.
+#
+# 10s interval x 3 retries means a stopped worker reads unhealthy in about 30s.
 
 services:
   identity-stub:
@@ -27,11 +39,13 @@ services:
       - ./config:/config:ro
       - ./data:/data
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8001/healthz')"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
+      # The JWKS is what every other service needs from this one. A stub that
+      # cannot serve its public keys is not usable, however alive it looks.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/jwks.json', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   gateway:
     build:
@@ -44,6 +58,11 @@ services:
       HARNESS_JWT_AUDIENCE: ${JWT_AUDIENCE:-harness-poc}
       HARNESS_JWKS_URL: http://identity-stub:8001/jwks.json
       HARNESS_AUDIT_URL: http://audit:8030/events
+      ORCHESTRATOR_URL: http://orchestrator:8010/chat
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      ROUTER_MODEL: ${ROUTER_MODEL:-deepseek-v4-flash}
+      AGENT_THINKING: ${AGENT_THINKING:-false}
     volumes:
       - ./services/gateway:/app/services/gateway
       - ./libs:/app/libs
@@ -52,12 +71,172 @@ services:
         condition: service_healthy
       audit:
         condition: service_healthy
+      orchestrator:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
+      # Liveness only: /healthz takes no token and calls nothing downstream, so
+      # a dead orchestrator or identity-stub does not cascade into the gateway
+      # reading unhealthy as well.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    ports: ["127.0.0.1:8010:8010"]
+    environment:
+      HARNESS_SERVICE_NAME: orchestrator
+      HARNESS_JWT_ISSUER: http://identity-stub:8001
+      HARNESS_JWT_AUDIENCE: ${JWT_AUDIENCE:-harness-poc}
+      HARNESS_JWKS_URL: http://identity-stub:8001/jwks.json
+      HARNESS_AUDIT_URL: http://audit:8030/events
+      REGISTRY_PATH: /config/registry.yaml
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      AGENT_MODEL: ${AGENT_MODEL:-deepseek-v4-pro}
+      AGENT_THINKING: ${AGENT_THINKING:-false}
+    volumes:
+      - ./services/orchestrator:/app/services/orchestrator
+      - ./libs:/app/libs
+      - ./config:/config:ro
+    depends_on:
+      identity-stub:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+      mcp-colleague:
+        condition: service_healthy
+      mcp-canvas:
+        condition: service_healthy
+      mcp-kuali:
+        condition: service_healthy
+      mcp-labor:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # The four MCP servers are the enforcement layer (SPEC §4.4-4.7). They differ
+  # only in tools, rules, database and port; mcp-colleague is the skeleton the
+  # other three were stamped from, healthcheck block included.
+  mcp-colleague:
+    build:
+      context: .
+      dockerfile: services/mcp-colleague/Dockerfile
+    ports: ["127.0.0.1:8021:8021"]
+    environment:
+      HARNESS_SERVICE_NAME: mcp-colleague
+      HARNESS_JWT_ISSUER: http://identity-stub:8001
+      HARNESS_JWT_AUDIENCE: ${JWT_AUDIENCE:-harness-poc}
+      HARNESS_JWKS_URL: http://identity-stub:8001/jwks.json
+      HARNESS_AUDIT_URL: http://audit:8030/events
+      COLLEAGUE_DB_PATH: /data/colleague.db
+    volumes:
+      - ./services/mcp-colleague:/app/services/mcp-colleague
+      - ./libs:/app/libs
+      - ./data:/data:ro
+    depends_on:
+      identity-stub:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8021/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  mcp-labor:
+    build:
+      context: .
+      dockerfile: services/mcp-labor/Dockerfile
+    ports: ["127.0.0.1:8022:8022"]
+    environment:
+      HARNESS_SERVICE_NAME: mcp-labor
+      HARNESS_JWT_ISSUER: http://identity-stub:8001
+      HARNESS_JWT_AUDIENCE: ${JWT_AUDIENCE:-harness-poc}
+      HARNESS_JWKS_URL: http://identity-stub:8001/jwks.json
+      HARNESS_AUDIT_URL: http://audit:8030/events
+      LABOR_DB_PATH: /data/labor.db
+    volumes:
+      - ./services/mcp-labor:/app/services/mcp-labor
+      - ./libs:/app/libs
+      - ./data:/data:ro
+    depends_on:
+      identity-stub:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8022/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  mcp-canvas:
+    build:
+      context: .
+      dockerfile: services/mcp-canvas/Dockerfile
+    ports: ["127.0.0.1:8023:8023"]
+    environment:
+      HARNESS_SERVICE_NAME: mcp-canvas
+      HARNESS_JWT_ISSUER: http://identity-stub:8001
+      HARNESS_JWT_AUDIENCE: ${JWT_AUDIENCE:-harness-poc}
+      HARNESS_JWKS_URL: http://identity-stub:8001/jwks.json
+      HARNESS_AUDIT_URL: http://audit:8030/events
+      CANVAS_DB_PATH: /data/canvas.db
+    volumes:
+      - ./services/mcp-canvas:/app/services/mcp-canvas
+      - ./libs:/app/libs
+      - ./data:/data:ro
+    depends_on:
+      identity-stub:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8023/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  mcp-kuali:
+    build:
+      context: .
+      dockerfile: services/mcp-kuali/Dockerfile
+    ports: ["127.0.0.1:8024:8024"]
+    environment:
+      HARNESS_SERVICE_NAME: mcp-kuali
+      HARNESS_JWT_ISSUER: http://identity-stub:8001
+      HARNESS_JWT_AUDIENCE: ${JWT_AUDIENCE:-harness-poc}
+      HARNESS_JWKS_URL: http://identity-stub:8001/jwks.json
+      HARNESS_AUDIT_URL: http://audit:8030/events
+      KUALI_DB_PATH: /data/kuali.db
+    volumes:
+      - ./services/mcp-kuali:/app/services/mcp-kuali
+      - ./libs:/app/libs
+      - ./data:/data:ro
+    depends_on:
+      identity-stub:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8024/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   audit:
     build:
@@ -71,8 +250,10 @@ services:
       - ./services/audit:/app/services/audit
       - ./data:/data
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8030/healthz')"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
+      # /events, not /healthz: reading the log back is what audit is for, and it
+      # exercises the SQLite handle that a bare liveness route would not touch.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8030/events?limit=1', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

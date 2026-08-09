@@ -293,12 +293,20 @@ def dana_token(token_for: Callable[[str], str]) -> str:
 # --------------------------------------------------------------------------
 
 
+# A question that survives triage runs the whole gateway -> orchestrator -> MCP
+# -> model path, and that takes far longer than the session client's default.
+# Passed explicitly by the few tests that need a real answer, so a negative test
+# that should fail fast is never given a generous deadline by accident.
+CHAT_TIMEOUT_SECONDS: float = 120.0
+
+
 def post_chat(
     client: httpx.Client,
     *,
     authorization: str | None,
     message: str = "hello",
     base_url: str = GATEWAY_URL,
+    timeout: float | None = None,
 ) -> httpx.Response:
     """POST /chat with an arbitrary (or absent) Authorization header."""
     headers: dict[str, str] = {} if authorization is None else {"Authorization": authorization}
@@ -306,6 +314,7 @@ def post_chat(
         f"{base_url}/chat",
         json={"message": message, "history": []},
         headers=headers,
+        **({} if timeout is None else {"timeout": timeout}),
     )
 
 
@@ -315,8 +324,15 @@ def post_chat_with_token(
     message: str = "hello",
     *,
     base_url: str = GATEWAY_URL,
+    timeout: float | None = None,
 ) -> httpx.Response:
-    return post_chat(client, authorization=f"Bearer {token}", message=message, base_url=base_url)
+    return post_chat(
+        client,
+        authorization=f"Bearer {token}",
+        message=message,
+        base_url=base_url,
+        timeout=timeout,
+    )
 
 
 def raw_chat_status(authorization: str, *, base_url: str = GATEWAY_URL) -> int:
@@ -483,7 +499,7 @@ def mcp_initialize_request(
     )
 
 
-def _decode_jsonrpc(response: httpx.Response) -> dict[str, Any]:
+def decode_jsonrpc(response: httpx.Response) -> dict[str, Any]:
     """Streamable HTTP answers with either a JSON body or an SSE stream."""
     content_type = response.headers.get("content-type", "")
     if "text/event-stream" in content_type:
@@ -537,7 +553,7 @@ class MCPSession:
         assert response.status_code < 400, (
             f"{method} on {self.url} returned HTTP {response.status_code}: {response.text[:300]}"
         )
-        return _decode_jsonrpc(response)
+        return decode_jsonrpc(response)
 
     def open(self) -> None:
         self._next_id += 1
@@ -563,6 +579,31 @@ class MCPSession:
             self._client.delete(self.url, headers=self._headers())
         except httpx.HTTPError:
             pass  # session teardown is best-effort; the test's verdict is already in
+
+    def call_tool_as(
+        self, name: str, arguments: dict[str, Any], *, token: str | None
+    ) -> httpx.Response:
+        """A tools/call on this already-open session, under a DIFFERENT credential.
+
+        Returns the raw response rather than a ToolResult, because the whole
+        question these tests ask is what the server does at the HTTP level when
+        the token on the request is not the token that opened the session — a
+        401 and a refusal are both correct answers and they are different rows.
+        """
+        self._next_id += 1
+        headers = mcp_headers(token)
+        if self._session_id is not None:
+            headers["Mcp-Session-Id"] = self._session_id
+        return self._client.post(
+            self.url,
+            json={
+                "jsonrpc": "2.0",
+                "id": self._next_id,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            },
+            headers=headers,
+        )
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         payload = self._rpc("tools/call", {"name": name, "arguments": arguments})

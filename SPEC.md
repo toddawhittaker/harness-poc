@@ -32,6 +32,7 @@ Out of scope, deliberately: writes, small-cell suppression, streaming-token UX p
 - Chainlit (latest 2.x) for both UIs.
 - Docker Compose v2. One `docker-compose.yml`, dev-mode volume mounts for hot reload (`--reload` for uvicorn, `chainlit run -w`).
 - cloudflared as an optional compose profile (`--profile tunnel`).
+- MCP Python SDK pinned `>=1.29,<2` (the FastMCP API; 1.x is in maintenance mode, and that stability is deliberate for this POC — do not upgrade to 2.x or substitute standalone fastmcp). Streamable HTTP transport.
 
 Models via env, OpenAI-compatible endpoint:
 

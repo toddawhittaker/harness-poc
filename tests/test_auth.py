@@ -39,6 +39,7 @@ import hmac
 import importlib.util
 import json
 import logging
+import socket
 import subprocess
 import time
 from collections.abc import Callable
@@ -53,8 +54,10 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from conftest import (
     AUDIENCE,
     AUDIT_URL,
+    CHAT_TIMEOUT_SECONDS,
     IDENTITY_URL,
     ISSUER,
+    MCP_PATH,
     MCP_SERVERS,
     ORCHESTRATOR_URL,
     PERSONA_NAMES,
@@ -62,6 +65,7 @@ from conftest import (
     REPO_ROOT,
     TOKEN_TTL_SECONDS,
     base_claims,
+    decode_jsonrpc,
     fetch_events,
     mcp_initialize_request,
     mcp_session,
@@ -308,19 +312,34 @@ def test_gateway_401_does_not_echo_the_token(http: httpx.Client, mint: Callable[
 
 
 def test_valid_token_reaches_the_gateway(http: httpx.Client, dana_token: str) -> None:
-    message = "negative-auth suite positive control"
-    response = post_chat_with_token(http, dana_token, message)
+    """What this proves: dana's real token is ACCEPTED and the request is served.
+
+    That is the whole job. Every test above asserts a 401, and all of them would
+    pass just as happily on a gateway that answered 401 to everything — this is
+    the one test that says the accepting path exists at all.
+
+    It asserts nothing about the content of the answer. Session 2 removed ECHO
+    mode (SPEC §8): the gateway now triages the question and forwards the
+    survivors to the orchestrator, so the reply is whatever a model wrote and
+    there is no fixed string to look for. The shape is still contractual — a
+    non-empty `reply` string and a `tools_used` list — and the status code is
+    what carries the authentication claim.
+
+    The message is deliberately not a real question. Triage classifies it as
+    `other` and the gateway answers from the gate in about two seconds, which
+    keeps the suite's positive control cheap. Whether the gate answers or the
+    orchestrator does is irrelevant here; both are 200, and 200 is the claim.
+    Tests that need the full path to run say so explicitly, and cost ten seconds.
+    """
+    response = post_chat_with_token(http, dana_token, "negative-auth suite positive control")
     assert response.status_code == 200, (
         f"dana's freshly minted token must be accepted. Got {response.status_code}: "
         f"{response.text[:200]}"
     )
     body = response.json()
     assert isinstance(body.get("reply"), str) and body["reply"], f"no reply in {body!r}"
-    assert message in body["reply"], (
-        f"the Session 1 gateway echoes: the reply must contain the message sent. Got {body['reply']!r}"
-    )
-    assert body.get("tools_used") == [], (
-        f"the Session 1 gateway calls no tools; tools_used must be []. Got {body.get('tools_used')!r}"
+    assert isinstance(body.get("tools_used"), list), (
+        f"tools_used must be a list, got {type(body.get('tools_used')).__name__}: {body!r}"
     )
 
 
@@ -477,8 +496,26 @@ def test_gateway_auth_failure_is_audited(http: httpx.Client) -> None:
 
 
 def test_successful_chat_is_audited(http: httpx.Client, dana_token: str) -> None:
+    """A real question is required now, and the question has to fit the persona.
+
+    SPEC §4.2 gives the gateway two exits, and only one of them writes the row
+    this test is looking for. Step 3 audits `refused_at_gate` and answers from
+    the gate; step 5 audits `request_completed` after the orchestrator has run.
+    Anything triage classifies as `other` — "audit me", "hello", small talk —
+    takes the first exit and never reaches the second. That is correct
+    behaviour, so the fix belongs in the question, not in the assertion.
+
+    dana is an advisor, so an advisee question passes triage and drives the full
+    gateway -> orchestrator -> MCP path. It calls a live model and takes roughly
+    ten seconds; CHAT_TIMEOUT_SECONDS is why it does not hit the client default.
+    """
     since = utcnow() - timedelta(seconds=2)
-    response = post_chat_with_token(http, dana_token, "audit me")
+    response = post_chat_with_token(
+        http,
+        dana_token,
+        "Which of my advisees have not logged in recently?",
+        timeout=CHAT_TIMEOUT_SECONDS,
+    )
     assert response.status_code == 200, f"expected 200, got {response.status_code}"
 
     event = wait_for_event(
@@ -613,9 +650,25 @@ def test_audit_never_records_tokens_or_credentials(
     Generate traffic in both directions first — one accepted request carrying a
     real token, one rejected request carrying a well-formed expired one — so the
     scan runs against rows that were written while tokens were in hand.
+
+    The accepted request asks a genuine advisee question rather than a throwaway
+    one, for two reasons. It has to survive triage at all: SPEC §4.2 answers
+    anything classified `other` from the gate, and the `request_completed` row
+    this waits on is only written after the orchestrator has run. And it is the
+    stronger scan — the caller's bearer travels gateway -> orchestrator -> four
+    MCP servers, and every one of those hops writes audit rows while holding the
+    token. A question that stops at the gate would never exercise them.
+
+    The scanning assertions below are unchanged and must stay exactly this
+    strict. They are the point of the test; the question is only the setup.
     """
     since = utcnow() - timedelta(seconds=2)
-    accepted = post_chat_with_token(http, dana_token, "hygiene check")
+    accepted = post_chat_with_token(
+        http,
+        dana_token,
+        "Which of my advisees have not logged in recently?",
+        timeout=CHAT_TIMEOUT_SECONDS,
+    )
     assert accepted.status_code == 200, f"expected 200, got {accepted.status_code}"
 
     issued = int(time.time()) - TOKEN_TTL_SECONDS - 3600
@@ -948,6 +1001,275 @@ def test_mcp_server_rejects_an_expired_token(
     token = mint(claims={"iat": issued, "exp": issued + TOKEN_TTL_SECONDS})
     response = mcp_initialize_request(http, MCP_SERVERS[server], token=token)
     assert_unauthorized(response, f"an expired token at {server}")
+
+
+@pytest.mark.session2
+def test_orchestrator_rejects_a_tampered_signature(
+    http: httpx.Client, session2_stack: None, dana_token: str
+) -> None:
+    """A real, current token for a real persona, with one byte flipped.
+
+    Claims that read correctly are not evidence of anything. The orchestrator
+    has to do the maths itself, because the bypass demo (SPEC §7 step 4) reaches
+    it with no gateway in front to have done it first.
+    """
+    tampered = mutate_signature(dana_token)
+    assert tampered != dana_token, "the tamper helper did not change the token"
+    response = post_chat_with_token(http, tampered, base_url=ORCHESTRATOR_URL)
+    assert_unauthorized(response, "a token with a tampered signature at the orchestrator")
+
+
+@pytest.mark.session2
+@pytest.mark.parametrize("server", sorted(MCP_SERVERS))
+def test_mcp_server_rejects_a_tampered_signature(
+    http: httpx.Client, session2_stack: None, dana_token: str, server: str
+) -> None:
+    """Including mcp-labor, whose data is public.
+
+    The data is public; the mechanism is not optional (SPEC §4.5). A server that
+    skipped verification because its rows are harmless would break the claim
+    that all six services validate independently.
+    """
+    tampered = mutate_signature(dana_token)
+    assert tampered != dana_token, "the tamper helper did not change the token"
+    response = mcp_initialize_request(http, MCP_SERVERS[server], token=tampered)
+    assert_unauthorized(response, f"a token with a tampered signature at {server}")
+
+
+@pytest.mark.session2
+def test_orchestrator_rejects_a_token_for_a_different_audience(
+    http: httpx.Client, session2_stack: None, mint: Callable[..., str]
+) -> None:
+    """Genuinely signed by identity-stub, issued for somewhere else.
+
+    `aud` is what stops a token minted for a neighbouring system from being
+    replayed here, and it is the check most easily lost when a service copies
+    its verification call from another service and drops an argument.
+    """
+    token = mint(claims={"aud": "some-other-api"})
+    response = post_chat_with_token(http, token, base_url=ORCHESTRATOR_URL)
+    assert_unauthorized(
+        response, f"a token with aud='some-other-api' instead of {AUDIENCE!r} at the orchestrator"
+    )
+
+
+@pytest.mark.session2
+@pytest.mark.parametrize("server", sorted(MCP_SERVERS))
+def test_mcp_server_rejects_a_token_for_a_different_audience(
+    http: httpx.Client, session2_stack: None, mint: Callable[..., str], server: str
+) -> None:
+    token = mint(claims={"aud": "some-other-api"})
+    response = mcp_initialize_request(http, MCP_SERVERS[server], token=token)
+    assert_unauthorized(
+        response, f"a token with aud='some-other-api' instead of {AUDIENCE!r} at {server}"
+    )
+
+
+@pytest.mark.session2
+def test_orchestrator_rejects_a_token_from_a_different_issuer(
+    http: httpx.Client, session2_stack: None, mint: Callable[..., str]
+) -> None:
+    """`iss` completes the set. SPEC §6 requires signature, iss, aud and exp to
+    be checked by every service, and until now only the gateway was asked about
+    `iss` — the other five were covered for the other three and taken on trust
+    for this one. A shared helper is a reason to expect the check is there, not
+    evidence that each service calls it with the issuer argument still attached.
+    """
+    token = mint(claims={"iss": "http://evil-idp.example.com"})
+    response = post_chat_with_token(http, token, base_url=ORCHESTRATOR_URL)
+    assert_unauthorized(
+        response,
+        f"a token with iss='http://evil-idp.example.com' instead of {ISSUER!r} at the orchestrator",
+    )
+
+
+@pytest.mark.session2
+@pytest.mark.parametrize("server", sorted(MCP_SERVERS))
+def test_mcp_server_rejects_a_token_from_a_different_issuer(
+    http: httpx.Client, session2_stack: None, mint: Callable[..., str], server: str
+) -> None:
+    token = mint(claims={"iss": "http://evil-idp.example.com"})
+    response = mcp_initialize_request(http, MCP_SERVERS[server], token=token)
+    assert_unauthorized(
+        response, f"a token with iss='http://evil-idp.example.com' instead of {ISSUER!r} at {server}"
+    )
+
+
+# --------------------------------------------------------------------------
+# Scope types the auth middleware will not serve.
+#
+# The middleware wraps the app FastMCP built, so it sees every ASGI scope before
+# any route matches. It used to let all non-`http` scopes through, because
+# `lifespan` has to reach the session manager — which meant any scope type that
+# was not `http` was handed to the application with no token checked. No
+# websocket route exists on these servers, so it was never exploitable; it was a
+# trapdoor left open for whoever adds one.
+#
+# It is now an allowlist: `lifespan` and `GET /healthz` pass, `http` is
+# validated, everything else is closed without dispatching. This test uses a
+# VALID token on purpose — the refusal must come from the connection type, not
+# from authentication, or it would still pass once the trapdoor reopened.
+# --------------------------------------------------------------------------
+
+
+def websocket_handshake_status(base_url: str, token: str) -> int:
+    """Attempt a WebSocket upgrade over a raw socket, returning the HTTP status.
+
+    Hand-framed because the test workspace carries no websocket client, and
+    because an attacker has none of a library's scruples about which endpoints
+    are meant to be upgraded. A refusal before `accept` reaches the client as an
+    ordinary HTTP response; 101 would mean the upgrade completed.
+    """
+    url = httpx.URL(base_url)
+    host, port = url.host, url.port or 80
+    key = base64.b64encode(b"0123456789abcdef").decode()
+    request = (
+        f"GET {MCP_PATH} HTTP/1.1\r\n".encode()
+        + f"Host: {host}:{port}\r\n".encode()
+        + b"Upgrade: websocket\r\n"
+        + b"Connection: Upgrade\r\n"
+        + f"Sec-WebSocket-Key: {key}\r\n".encode()
+        + b"Sec-WebSocket-Version: 13\r\n"
+        + f"Authorization: Bearer {token}\r\n".encode()
+        + b"\r\n"
+    )
+
+    with socket.create_connection((host, port), timeout=10.0) as sock:
+        sock.sendall(request)
+        received = b""
+        while b"\r\n" not in received:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            received += chunk
+
+    if not received:
+        # The server hung up without replying. That is a refusal too.
+        return 0
+    status_line = received.split(b"\r\n", 1)[0].decode("latin-1")
+    parts = status_line.split()
+    assert len(parts) >= 2 and parts[0].startswith("HTTP/"), (
+        f"no parseable status line from a websocket upgrade attempt: {status_line!r}"
+    )
+    return int(parts[1])
+
+
+@pytest.mark.session2
+@pytest.mark.parametrize("server", sorted(MCP_SERVERS))
+def test_websocket_upgrade_is_refused_without_reaching_the_server(
+    http: httpx.Client, session2_stack: None, token_for: Callable[[str], str], server: str
+) -> None:
+    """A websocket must be closed BY THE MIDDLEWARE, even carrying a good token.
+
+    The status code alone cannot prove this and must not be trusted to. Starlette
+    also closes a websocket that matches no route, and uvicorn reports both
+    closes as HTTP 403 — so a test asserting only "not 101" passes just as well
+    against the trapdoor it is supposed to guard. Verified by reverting the
+    middleware and watching the status-only assertion stay green.
+
+    The audit row is what distinguishes them. Only the middleware writes one, and
+    it can only write one if it handled the connection itself instead of handing
+    it to the app.
+    """
+    since = utcnow() - timedelta(seconds=2)
+    status = websocket_handshake_status(MCP_SERVERS[server], token_for("dana"))
+
+    assert status != 101, (
+        f"{server} completed a WebSocket upgrade on {MCP_PATH}. A completed upgrade means "
+        "the connection reached the application."
+    )
+    assert status in {0, 400, 403}, (
+        f"{server} answered a websocket upgrade with HTTP {status}. Expected it closed "
+        "before accept (uvicorn reports that as 403), not served."
+    )
+
+    event = wait_for_event(
+        http,
+        lambda row: (
+            row.get("service") == server
+            and row.get("event") == "auth_failed"
+            and "websocket" in str(row.get("detail", {}).get("reason", "")).lower()
+        ),
+        since=since,
+    )
+    assert event is not None, (
+        f"{server} refused the upgrade but wrote no audit row naming the connection type. "
+        "That means the middleware passed the websocket scope to the application and "
+        "something downstream closed it — the connection reached code that never checked "
+        "a token. The middleware must close every scope type it cannot authenticate."
+    )
+
+
+# --------------------------------------------------------------------------
+# Session identity. A tool must see the caller on THIS request, and no other.
+#
+# The bug these guard is not hypothetical and it does not announce itself. In
+# FastMCP's default stateful mode, every tool runs inside the task that the
+# *initialize* request created, so a ContextVar set by per-request middleware is
+# invisible to the tool — it goes on reading the identity of whoever opened the
+# session. Two people, one open session, and every call executes as the first
+# one. That is a confused deputy reached through the back door, and it would
+# make every refusal in this file decorative.
+#
+# The servers avoid it two ways at once: stateless_http=True, and claims carried
+# on the per-request ASGI scope rather than in a ContextVar. These tests assert
+# the observable behaviour, so they hold whichever mechanism is in place — and
+# they fail if either one is quietly removed.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.session2
+def test_a_tool_call_runs_as_the_token_on_that_request_not_the_session(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """Open the session as dana (advisor), drive the tool call as kim (dean).
+
+    kim must be refused for lacking the advisor role. Dana's advisee roster
+    coming back would mean the tool read the identity that opened the session
+    instead of the identity on the request in front of it.
+    """
+    with mcp_session(MCP_SERVERS["mcp-colleague"], token_for("dana")) as session:
+        response = session.call_tool_as("get_my_advisees", {}, token=token_for("kim"))
+
+    assert response.status_code < 400, (
+        f"expected the call to be answered, got HTTP {response.status_code}: {response.text[:200]}"
+    )
+    payload = decode_jsonrpc(response)
+    body = json.dumps(payload)
+    result = payload.get("result", {})
+    refused = "error" in payload or bool(result.get("isError"))
+    assert refused, (
+        "kim holds only the dean role and must be refused get_my_advisees, even on a "
+        f"session dana opened. Got: {body[:400]}"
+    )
+    assert "advisor" in body.lower(), (
+        f"the refusal must name the advisor role kim is missing. Got: {body[:400]}"
+    )
+    assert "S-" not in body, (
+        "dana's advisees came back for kim: the tool observed the identity that opened "
+        f"the session, not the one on this request. Got: {body[:400]}"
+    )
+
+
+@pytest.mark.session2
+def test_dropping_the_token_mid_session_is_rejected(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """The negative control for the test above.
+
+    An open session must confer nothing. Strip the Authorization header from a
+    follow-up call and the server has to answer 401 — if it serves the request
+    on the strength of an earlier one, authentication has become a property of
+    the connection rather than of the request, and every per-request check in
+    this file is measuring the wrong thing.
+    """
+    with mcp_session(MCP_SERVERS["mcp-colleague"], token_for("dana")) as session:
+        response = session.call_tool_as("get_my_advisees", {}, token=None)
+
+    assert_unauthorized(response, "a tools/call with no token on a session dana opened")
+    assert "S-" not in response.text, (
+        f"the 401 body leaked student data: {response.text[:300]}"
+    )
 
 
 @pytest.fixture(scope="session")
