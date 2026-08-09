@@ -62,7 +62,15 @@ curl -sf -X POST "$ORCHESTRATOR_URL/chat" \
   | python3 -c '
 import json, sys, textwrap
 body = json.load(sys.stdin)
-print("    tools the model actually called:", body.get("tools_used") or "none")
+# Executed, not attempted. A tool outside the caller allowlist was never in
+# the model schema, so a call to one dialled no server and reached no data. It
+# is reported on its own line rather than counted as something that ran,
+# because the sentence printed below says those tools were never placed in the
+# model view, and both cannot read as true at once.
+print("    tools that actually ran:", body.get("tools_used") or "none")
+attempted = body.get("unoffered_calls") or []
+if attempted:
+    print("    attempted but not held (no server dialled):", attempted)
 print()
 for line in textwrap.wrap(body.get("reply", ""), 74):
     print("    " + line)
