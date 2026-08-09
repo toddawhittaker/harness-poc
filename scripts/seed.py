@@ -123,8 +123,20 @@ CURRICULUM: dict[str, list[tuple[str, str, int, list[str], list[str]]]] = {
          ["threat intelligence", "incident response", "network defense", "digital forensics"]),
         ("CYB-330", "Applied Cryptography", 3, ["CYB-240"],
          ["cryptography", "identity and access management"]),
+        # "API design" is here to thicken demo moment 7's second partial match,
+        # and it earns its place in the course: securing the interfaces between
+        # systems is what a security architecture course covers. It was chosen
+        # over "cloud architecture", which reads at least as naturally, because
+        # cloud architecture is also one of Network and Computer Systems
+        # Administrators' six skills — adding it would have moved the FIRST
+        # partial from 3 of 6 to 4 of 6 while fixing the second. API design
+        # appears in Cloud Infrastructure Architects' skills and in no other
+        # occupation the demo question reaches, so it moves one number and one
+        # number only. verify() asserts that overlap profile rather than
+        # trusting this comment.
         ("CYB-410", "Security Architecture", 3, ["CYB-310"],
-         ["security architecture", "identity and access management", "risk assessment"]),
+         ["security architecture", "identity and access management", "risk assessment",
+          "API design"]),
         ("CYB-420", "Governance, Risk, and Compliance", 3, ["CYB-310"],
          ["regulatory compliance", "security auditing", "risk assessment"]),
         ("CYB-460", "Cybersecurity Capstone", 3, ["CYB-410", "CYB-420"],
@@ -821,6 +833,21 @@ def verify(state: dict[str, dict]) -> None:
     flagged = [s for s in dana_advisees if flagged_courses(s, s["current"])]
     assert len(flagged) == 9, f"expected 9 flagged advisees for dana, got {len(flagged)}"
 
+    # The intersection, which get_my_advisees now returns as
+    # flagged_and_quiet_count. Every quiet advisee is also flagged in the
+    # current cast — flagged_courses() flags anyone over the quiet threshold —
+    # so this equals the quiet count and the ninth flagged student (S-1045, low
+    # GPA, logs in) is the one who is flagged without being quiet. Pinned at 8
+    # because demo moment 1's opening sentence reads all three counts out, and a
+    # cast where the two sets stopped nesting would change what that sentence
+    # means without changing any number in it.
+    flagged_and_quiet = [s for s in dana_advisees
+                         if flagged_courses(s, s["current"])
+                         and s["last_login_days"] > QUIET_AFTER_DAYS]
+    assert len(flagged_and_quiet) == 8, (
+        f"expected 8 advisees both flagged and quiet, got {len(flagged_and_quiet)}"
+    )
+
     # The RBAC refusal needs a seeded student inside dana's id range who is not
     # hers, or the test proves "no such student" instead of "not your advisee".
     numbers = sorted(int(sid.split("-")[1]) for sid in DANA_ADVISEE_IDS)
@@ -920,6 +947,44 @@ def verify(state: dict[str, dict]) -> None:
     )
     assert "Data Scientists" in miss, "Data Scientists is the designated fast-growing clean miss"
 
+    # The four tallies demo moment 7 states out loud, pinned exactly rather than
+    # by shape. "Strong, partial, miss" was true both before and after CYB-410
+    # gained a skill, and a membership test cannot tell you that the second
+    # partial moved from 2 of 7 to 3 of 7 — or that the first one moved when it
+    # was supposed to hold still.
+    cia = by_title["Cloud Infrastructure Architects"]
+    ds = by_title["Data Scientists"]
+    for title, covered, total, occupation in (
+        ("Information Security Analysts", 8, 8, isa),
+        ("Network and Computer Systems Administrators", 3, 6, netadmin),
+        ("Cloud Infrastructure Architects", 3, 7, cia),
+        ("Data Scientists", 0, 7, ds),
+    ):
+        assert (len(occupation & cyb), len(occupation)) == (covered, total), (
+            f"CYB-BS vs {title} must be {covered}/{total} and is "
+            f"{len(occupation & cyb)}/{len(occupation)}; demo moment 7 reads these four "
+            "tallies out. Do not loosen this — retune the outcome that moved it."
+        )
+
+    # How the second partial was thickened, and why it did not disturb the other
+    # three. "API design" is the only skill CYB-410 gained; it belongs to Cloud
+    # Infrastructure Architects and to none of the other three occupations, so
+    # the 8/8, the 3/6 and the 0/7 above cannot move because of it. The obvious
+    # alternative, "cloud architecture", is shared with Network and Computer
+    # Systems Administrators and would have moved that partial to 4 of 6.
+    THICKENER = "API design"
+    assert THICKENER in cyb, (
+        f"{THICKENER!r} is what lifts Cloud Infrastructure Architects to 3 of 7 and "
+        "CYB-BS no longer teaches it"
+    )
+    assert THICKENER in cia, f"{THICKENER!r} must be a Cloud Infrastructure Architects skill"
+    for title in ("Information Security Analysts",
+                  "Network and Computer Systems Administrators", "Data Scientists"):
+        assert THICKENER not in by_title[title], (
+            f"{THICKENER!r} has appeared in {title}'s skills; it was chosen precisely "
+            "because it did not, and it can now silently move that occupation's tally"
+        )
+
     # Demo moment 8: the two fast-growers must be unmapped and genuinely gapped.
     mapped = {soc for _p, soc in PROGRAM_OCCUPATION_MAP}
     top3 = sorted(OCCUPATIONS, key=lambda o: -o[2])[:3]
@@ -934,6 +999,20 @@ def verify(state: dict[str, dict]) -> None:
 
     for skill in DELIBERATELY_UNTAUGHT:
         assert skill not in all_taught, f"{skill!r} was supposed to stay untaught"
+
+    # ...and nothing else is untaught either. Demo moment 8's claim is that
+    # exactly these three skills are absent from the whole catalog, so the set
+    # has to be exact in both directions: a fourth skill nobody teaches would be
+    # a gap the demo does not know about, and one of these three quietly picked
+    # up by a course would make the beat's headline false. Adding a skill to any
+    # outcome is what would move this, which is why it is asserted beside the
+    # session that did exactly that.
+    absent = set(SKILLS) - all_taught
+    assert absent == set(DELIBERATELY_UNTAUGHT), (
+        f"the catalog-wide absent skills are {sorted(absent)}, not "
+        f"{sorted(set(DELIBERATELY_UNTAUGHT))}. Demo moment 8 names the three; fix the "
+        "outcomes rather than this assertion."
+    )
 
     # Demo moment 2: the dean's opening figures have to separate the programs on
     # the record's own numbers, not only on Canvas engagement. These are the
@@ -964,10 +1043,10 @@ def verify(state: dict[str, dict]) -> None:
         f"at least {MIN_QUIET_SPREAD_PCT}. Widen PROGRAM_PROFILE."
     )
 
-    ds = by_title["Data Scientists"]
     print("verified:")
     print(f"  dana advises {len(dana_advisees)}, of whom {len(flagged)} carry a term grade "
           f"flag and {len(quiet)} have not logged in for >{QUIET_AFTER_DAYS} days")
+    print(f"    both flagged and quiet: {len(flagged_and_quiet)}")
     print(f"  program spread: GPA {gpa_spread:.2f}, quiet share {quiet_spread:.1f} points")
     for code in sorted(per_program):
         print(f"    {code:7} avg GPA {per_program[code][0]:.2f}, quiet {per_program[code][1]:.1f}%")
@@ -981,6 +1060,7 @@ def verify(state: dict[str, dict]) -> None:
     print(f"  fast-growing means >= {FAST_GROWING_MIN_PCT}% ({len(fast)} of {len(OCCUPATIONS)} occupations)")
     print(f"  CYB-BS vs Information Security Analysts: {len(isa & cyb)}/{len(isa)} skills (strong)")
     print(f"  CYB-BS vs Network/Systems Administrators: {len(netadmin & cyb)}/{len(netadmin)} (partial)")
+    print(f"  CYB-BS vs Cloud Infrastructure Architects: {len(cia & cyb)}/{len(cia)} (partial)")
     print(f"  CYB-BS vs Data Scientists: {len(ds & cyb)}/{len(ds)} (miss)")
     print(f"  unmapped fast-growers: {', '.join(sorted(top3_titles - {'Information Security Analysts'}))}")
     print(f"  skills no program teaches: {', '.join(sorted(set(DELIBERATELY_UNTAUGHT)))}")

@@ -174,7 +174,12 @@ class ChatRequest(BaseModel):
 
 class ChatReply(BaseModel):
     reply: str
+    # Tools that were in this caller's offered set and therefore actually ran.
     tools_used: list[str] = Field(default_factory=list)
+    # Tools the model asked for and did not hold. Empty on every normal request;
+    # here so a caller reading this response — scripts/demo_bypass.sh does — can
+    # say what ran and what was merely attempted without the two being one list.
+    unoffered_calls: list[str] = Field(default_factory=list)
 
 
 @app.get("/healthz")
@@ -286,13 +291,17 @@ def message_history(history: list[Message]) -> list[Any]:
 
 
 def tools_called(result: Any) -> list[str]:
-    """Which tools the model actually called, in call order, deduplicated.
+    """Every tool name the model asked for, in call order, deduplicated.
 
     Read back from the run rather than tracked as intent: reporting intent
-    would let `tools_used` disagree with the audit trail, and the audit trail is
+    would let the receipt disagree with the audit trail, and the audit trail is
     the one that has to be true. On a regenerated run the history carries both
-    attempts, so this is every tool that ran during the whole request — which is
-    exactly the set the grounding check has to be judged against.
+    attempts, so this is every tool the model reached for during the whole
+    request.
+
+    Asked for, not ran. A model can emit a call for a tool that was never in
+    its schema, and that name arrives here looking exactly like one that
+    executed — see `executed_and_unoffered`, which is what separates them.
     """
     called: list[str] = []
     for message in result.all_messages():
@@ -300,6 +309,26 @@ def tools_called(result: Any) -> list[str]:
             if isinstance(part, ToolCallPart) and part.tool_name not in called:
                 called.append(part.tool_name)
     return called
+
+
+def executed_and_unoffered(called: list[str], allowed: set[str]) -> tuple[list[str], list[str]]:
+    """Split what the model asked for into what ran and what could not have.
+
+    A tool outside the allowlist was never in the model's schema, so no MCP
+    server was dialled and no data was reached — the call went nowhere. It still
+    appears in the run's messages, and until this split it flowed straight into
+    `tools_used`, into a green audit row, and into the bypass script's summary.
+    Demo moment 4 then said in one breath that pat's advisee tools "were never
+    placed in the model's view" and that the model called one of them. Both
+    cannot be true to a watching room, and the one that is false is the receipt.
+
+    So `tools_used` means EXECUTED. The attempt is not swallowed — it gets its
+    own audit row, decision "unoffered" — because a model reaching for a tool it
+    does not hold is worth seeing, and hiding it would be the other kind of
+    dishonest receipt.
+    """
+    return ([name for name in called if name in allowed],
+            [name for name in called if name not in allowed])
 
 
 def servers_reached(tools: list[str]) -> set[str]:
@@ -348,8 +377,12 @@ async def chat(
             # second attempt needs the same live MCP sessions — the point of
             # regenerating is that the model can call the tool it skipped.
             for attempt in range(1, GROUNDING_ATTEMPTS + 1):
-                called = tools_called(result)
-                verdict = grounding.check(result.output, servers_reached(called))
+                # Executed tools only. A call to a tool this caller was never
+                # offered reached no server, so it cannot make a citation true —
+                # judging the reply against it would let a phantom call ground a
+                # marker for a server that never answered.
+                executed, _unoffered = executed_and_unoffered(tools_called(result), allowed)
+                verdict = grounding.check(result.output, servers_reached(executed))
                 if verdict.ok:
                     break
                 last = attempt == GROUNDING_ATTEMPTS
@@ -363,7 +396,7 @@ async def chat(
                         # figures anyway — there is no marker to name.
                         "markers": list(verdict.markers),
                         "reason": verdict.reason,
-                        "tools_used": called,
+                        "tools_used": executed,
                         "outcome": "declined" if last else "regenerating",
                     },
                 )
@@ -396,7 +429,7 @@ async def chat(
             detail="The harness could not complete that request. Please try again.",
         ) from exc
 
-    tools_used = tools_called(result)
+    tools_used, unoffered_calls = executed_and_unoffered(tools_called(result), allowed)
     # The model's text is dropped when the guard declined it, and the tool rows
     # below are still written: the calls happened, and a request that produced
     # an answer nobody may read is exactly the one the audit page should show.
@@ -411,12 +444,29 @@ async def chat(
             detail={"tool": name, "via": "orchestrator"},
         )
 
+    for name in unoffered_calls:
+        # No matching MCP row will ever appear beside this one, because nothing
+        # was dialled: registry filtering kept the tool out of the model's view
+        # and the call died in the agent loop. The decision is its own word
+        # rather than "refused" — nobody refused it, there was nothing there to
+        # refuse — and the viewer paints an unrecognised decision grey, which is
+        # what an attempt that reached nothing should look like.
+        await audit_event(
+            "tool_call", sub=claims.sub, roles=claims.roles,
+            detail={"tool": name, "via": "orchestrator", "decision": "unoffered"},
+        )
+
     usage = usage_stats(result.usage)
     await audit_event(
         "answer_returned", sub=claims.sub, roles=claims.roles,
         detail={
             "tools_used": tools_used,
             "tools_offered": sorted(allowed),
+            # Tools the model reached for that it was never offered. Normally
+            # empty, and a row where it is not says the model tried a door that
+            # was not there — nothing reached, nothing leaked, and now nothing
+            # hidden either. tools_used ⊆ tools_offered holds on every row.
+            "unoffered_calls": unoffered_calls,
             # Which servers this caller's roles even reached for. Next to
             # tools_offered it is the registry-filtering claim in machine-
             # readable form: pat's row names one server, and it is not the
@@ -432,4 +482,4 @@ async def chat(
             **usage.model_dump(),
         },
     )
-    return ChatReply(reply=reply, tools_used=tools_used)
+    return ChatReply(reply=reply, tools_used=tools_used, unoffered_calls=unoffered_calls)

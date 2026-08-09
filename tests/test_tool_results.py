@@ -210,6 +210,36 @@ def test_the_advisee_roster_counts_its_own_quiet_students(
 
 
 @pytest.mark.session2
+def test_the_advisee_roster_counts_the_students_who_are_both(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """The intersection, which no arithmetic on the other two counts can recover.
+
+    With flagged_count and quiet_count both coming from the tool, demo moment 1
+    went wrong one level further in: the reply split the roster into "flagged
+    and quiet" and "flagged but active" and got the overlap wrong — three of
+    eight, then four of eight — arguing with itself mid-answer on the way to the
+    right names.
+    """
+    payload = dana_roster(token_for("dana"))
+    assert "flagged_and_quiet_count" in payload, (
+        f"get_my_advisees must state flagged_and_quiet_count: {sorted(payload)}"
+    )
+    both = [a for a in payload["advisees"]
+            if a["term_grade_flags"] and a["last_login_days"] > QUIET_AFTER_DAYS]
+    assert payload["flagged_and_quiet_count"] == len(both), (
+        f"flagged_and_quiet_count {payload['flagged_and_quiet_count']} disagrees with the "
+        f"{len(both)} advisees who are both flagged and quiet"
+    )
+    # Zero would satisfy the equality while telling the demo nothing.
+    # scripts/seed.py::verify pins this at 8 — every quiet advisee is flagged.
+    assert payload["flagged_and_quiet_count"] > 0, (
+        "no advisee is both flagged and quiet, so the sentence this count exists "
+        "for has nothing to say; check scripts/seed.py"
+    )
+
+
+@pytest.mark.session2
 def test_section_engagement_states_how_many_students_it_holds(
     session2_stack: None, token_for: Callable[[str], str]
 ) -> None:

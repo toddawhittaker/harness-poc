@@ -87,11 +87,21 @@ class AdviseeRoster(BaseModel):
     quiet one has not logged in for more than QUIET_AFTER_DAYS days. Both are
     counted from the very rows this result ships, so a tally cannot disagree
     with the list beneath it.
+
+    `flagged_and_quiet_count` is the last one, and it is the intersection: how
+    many advisees are both. Once the two subsets came from the tool, the model
+    started dividing the roster into "flagged and quiet" versus "flagged but
+    active" and getting *that* split wrong — three when it was eight, four when
+    it was eight — then noticing mid-answer and arguing with itself on screen.
+    No count can be derived from the two beside it, because a total and two
+    subset sizes do not fix their overlap; so it is counted here, from the same
+    rows, like the others.
     """
 
     advisee_count: int
     flagged_count: int
     quiet_count: int
+    flagged_and_quiet_count: int
     advisees: list[Advisee]
 
 
@@ -302,7 +312,7 @@ async def healthz(request: object) -> JSONResponse:
 
 @mcp.tool()
 async def get_my_advisees(ctx: Context) -> AdviseeRoster:
-    """The advisees assigned to you, with current courses, GPA, days since last login, and any term grade flags. advisee_count is how many there are; flagged_count is how many carry at least one term grade flag; quiet_count is how many have not logged in for more than ten days."""
+    """The advisees assigned to you, with current courses, GPA, days since last login, and any term grade flags. advisee_count is how many there are; flagged_count is how many carry at least one term grade flag; quiet_count is how many have not logged in for more than ten days; flagged_and_quiet_count is how many are both flagged and quiet."""
     claims = caller(ctx)
     async with audited("get_my_advisees", claims, {}):
         require_role(claims, "advisor", "get_my_advisees")
@@ -323,6 +333,9 @@ async def get_my_advisees(ctx: Context) -> AdviseeRoster:
             advisee_count=len(advisees),
             flagged_count=sum(1 for a in advisees if a.term_grade_flags),
             quiet_count=sum(1 for a in advisees if a.last_login_days > QUIET_AFTER_DAYS),
+            flagged_and_quiet_count=sum(
+                1 for a in advisees
+                if a.term_grade_flags and a.last_login_days > QUIET_AFTER_DAYS),
             advisees=advisees,
         )
 
