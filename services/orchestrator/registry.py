@@ -38,3 +38,13 @@ def allowed_tools(roles: list[str]) -> set[str]:
     """
     registry = _roles()
     return {tool for role in roles for tool in registry.get(role, [])}
+
+
+def registry_tools() -> set[str]:
+    """Every tool the registry names, for any role.
+
+    Used at startup to check that each of them belongs to a known MCP server —
+    a tool granted here but served by nobody would simply never appear, and the
+    resulting answer would read like missing data rather than a broken map.
+    """
+    return {tool for tools in _roles().values() for tool in tools}

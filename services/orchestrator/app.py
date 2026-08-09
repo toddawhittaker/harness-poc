@@ -10,10 +10,11 @@ Four things happen on every request, in this order:
    is the point — this service is reachable directly, and SPEC §7 step 4 is a
    live demonstration of someone doing exactly that.
 2. The caller's roles are mapped to a tool allowlist from config/registry.yaml.
-3. MCP clients are built for all four servers, carrying the CALLER's bearer
-   token, and filtered to the allowlist BEFORE the agent is constructed — a
-   tool this role cannot use is never in the model's view, not merely refused
-   when called.
+3. MCP clients are built — carrying the CALLER's bearer token — only for the
+   servers still holding a tool after the allowlist is applied, and filtered to
+   the allowlist BEFORE the agent is constructed. A tool this role cannot use is
+   never in the model's view, not merely refused when called; a server whose
+   every tool this role lacks is never dialled at all.
 4. The agent runs against a static system prompt with every dynamic thing after
    it, and every tool call and the final answer are audited.
 
@@ -23,8 +24,11 @@ as the person who asked, and no further.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import time
+from contextlib import AsyncExitStack
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -35,9 +39,12 @@ from pydantic_ai import Agent, RunContext, ToolCallPart
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.tools import ToolDefinition
+from pydantic_ai.toolsets import AbstractToolset
 
 from prompts import SYSTEM_PROMPT
-from registry import allowed_tools
+from registry import allowed_tools, registry_tools
+
+log = logging.getLogger("orchestrator")
 
 app = FastAPI(title="orchestrator")
 
@@ -50,9 +57,64 @@ MCP_SERVERS: dict[str, str] = {
     "labor": os.environ.get("MCP_LABOR_URL", "http://mcp-labor:8022/mcp"),
 }
 
+# Which server holds which tool (SPEC §4.4–§4.7). Known here, before any
+# connection is opened, because the decision this drives is whether to open one
+# at all: an adjunct's question has no business dialling the student record
+# system, and a connection never opened cannot fail, cannot time out, and cannot
+# be the subject of an argument about what it might have returned.
+#
+# tests/test_orchestrator_connections.py asks each live server for its own tool
+# list and fails if this map has drifted from it.
+SERVER_TOOLS: dict[str, frozenset[str]] = {
+    "colleague": frozenset({
+        "get_my_advisees", "get_student_summary", "get_program_summaries",
+        "get_enrollment_trends", "get_student_degree_progress", "get_next_term_options",
+    }),
+    "canvas": frozenset({
+        "get_my_sections", "get_section_engagement", "get_program_engagement_rollup",
+    }),
+    "kuali": frozenset({
+        "get_program_curriculum", "get_course_outcomes", "list_programs_catalog",
+    }),
+    "labor": frozenset({
+        "list_occupations", "get_occupation", "get_program_occupation_map",
+    }),
+}
+
 # A wrong question should fail in seconds, not hang a demo.
 MCP_INIT_TIMEOUT = 10.0
 MCP_READ_TIMEOUT = 60.0
+
+# One retry, then give up. Roughly one handshake in sixteen failed during
+# Session 2's verification run, and the one observed failure succeeded
+# immediately on a second attempt — so a single retry is worth having and a
+# retry loop is not. Short enough that a genuinely dead server still fails the
+# request in seconds rather than hanging the demo.
+MCP_CONNECT_ATTEMPTS = 2
+MCP_CONNECT_BACKOFF = 0.25
+
+
+def _check_every_registry_tool_has_a_server() -> None:
+    """Fail at import rather than answer a question with a tool silently missing.
+
+    If a tool is in registry.yaml but in no server's list here, no client would
+    be built for it and the model would simply never see it — an answer that
+    looks like a limitation of the data rather than a typo in a map. Loud is
+    better.
+    """
+    served = set().union(*SERVER_TOOLS.values())
+    for name, tools in SERVER_TOOLS.items():
+        others = set().union(*(t for other, t in SERVER_TOOLS.items() if other != name))
+        assert not (tools & others), f"{name} shares a tool name with another server"
+    orphans = registry_tools() - served
+    if orphans:
+        raise RuntimeError(
+            f"registry.yaml grants tools no MCP server claims: {sorted(orphans)}. "
+            "Add them to SERVER_TOOLS or remove them from the registry."
+        )
+
+
+_check_every_registry_tool_has_a_server()
 
 
 class Message(BaseModel):
@@ -93,13 +155,22 @@ def bearer_token(request: Request) -> str:
     return (request.headers.get("authorization") or "").partition(" ")[2].strip()
 
 
-def toolsets(token: str, allowed: set[str]) -> list[MCPToolset]:
-    """One filtered MCP client per server, carrying the caller's own token.
+def reachable_servers(allowed: set[str]) -> list[str]:
+    """The servers this caller has at least one tool on, in MCP_SERVERS order.
 
-    Per-request construction, which costs roughly 100ms across four servers.
-    Accepted at POC scale, and noted here rather than optimised: a pooled client
-    would have to be keyed by token to stay correct, and getting that wrong is
-    how one user's connection serves another user's request.
+    pat holds two labor tools and nothing else, so pat's requests name exactly
+    one server here and never open a connection to mcp-colleague at all.
+    """
+    return [name for name, tools in SERVER_TOOLS.items() if tools & allowed]
+
+
+def build_toolset(name: str, token: str, allowed: set[str]) -> AbstractToolset[None]:
+    """One filtered MCP client, carrying the caller's own token.
+
+    Per-request construction, which costs roughly 100ms per server. Accepted at
+    POC scale, and noted here rather than optimised: a pooled client would have
+    to be keyed by token to stay correct, and getting that wrong is how one
+    user's connection serves another user's request.
 
     `.filtered` runs at tool-listing time, so a tool outside the allowlist never
     reaches the model's schema — it is invisible, not merely forbidden.
@@ -107,22 +178,51 @@ def toolsets(token: str, allowed: set[str]) -> list[MCPToolset]:
     def permitted(ctx: RunContext[None], tool: ToolDefinition) -> bool:
         return tool.name in allowed
 
-    return [
-        MCPToolset(
-            url,
-            auth=token,
-            init_timeout=MCP_INIT_TIMEOUT,
-            read_timeout=MCP_READ_TIMEOUT,
-            # An authorization refusal is not something to have another go at.
-            # The default, 'retry', hands the refusal back to the model framed
-            # as "self-correct and try again" — which invites precisely the
-            # working-around that ground rule 3 forbids, and burns the retry
-            # budget until the run raises. 'failed' shows the model the refusal
-            # as a result, so it can do the one correct thing: relay it.
-            tool_error_behavior="failed",
-        ).filtered(permitted)
-        for url in MCP_SERVERS.values()
-    ]
+    return MCPToolset(
+        MCP_SERVERS[name],
+        auth=token,
+        init_timeout=MCP_INIT_TIMEOUT,
+        read_timeout=MCP_READ_TIMEOUT,
+        # An authorization refusal is not something to have another go at.
+        # The default, 'retry', hands the refusal back to the model framed
+        # as "self-correct and try again" — which invites precisely the
+        # working-around that ground rule 3 forbids, and burns the retry
+        # budget until the run raises. 'failed' shows the model the refusal
+        # as a result, so it can do the one correct thing: relay it.
+        tool_error_behavior="failed",
+    ).filtered(permitted)
+
+
+async def connect_toolsets(
+    stack: AsyncExitStack, token: str, allowed: set[str], retried: list[str],
+) -> list[AbstractToolset[None]]:
+    """Open a session to each reachable server, retrying a failed handshake once.
+
+    The handshake is opened here rather than left to `agent.run` so the retry can
+    be aimed at the one thing that flakes. Retrying the whole run would re-drive
+    the model and could repeat tool calls that already happened.
+
+    A fresh client per attempt: the failed one has already unwound its own exit
+    stack, and reusing a half-built session to save an object is exactly the kind
+    of cleverness this codebase is meant not to have. Servers that retried are
+    named in `retried`, which lands in the audit detail — a flake nobody can see
+    afterwards is a flake nobody will fix.
+    """
+    live: list[AbstractToolset[None]] = []
+    for name in reachable_servers(allowed):
+        for attempt in range(1, MCP_CONNECT_ATTEMPTS + 1):
+            try:
+                live.append(await stack.enter_async_context(
+                    build_toolset(name, token, allowed)))
+                break
+            except Exception as exc:  # noqa: BLE001 — retried, then re-raised below
+                if attempt == MCP_CONNECT_ATTEMPTS:
+                    raise
+                log.warning("mcp %s handshake failed (%s); retrying once",
+                            name, type(exc).__name__)
+                retried.append(name)
+                await asyncio.sleep(MCP_CONNECT_BACKOFF)
+    return live
 
 
 def message_history(history: list[Message]) -> list[Any]:
@@ -159,18 +259,20 @@ async def chat(
 ) -> ChatReply:
     started = time.perf_counter()
     allowed = allowed_tools(claims.roles)
-
-    agent = Agent(
-        agent_model(),
-        instructions=SYSTEM_PROMPT,
-        toolsets=toolsets(bearer_token(http_request), allowed),
-    )
+    retried: list[str] = []
 
     try:
-        result = await agent.run(
-            caller_context(claims, request.message),
-            message_history=message_history(request.history),
-        )
+        async with AsyncExitStack() as stack:
+            agent = Agent(
+                agent_model(),
+                instructions=SYSTEM_PROMPT,
+                toolsets=await connect_toolsets(
+                    stack, bearer_token(http_request), allowed, retried),
+            )
+            result = await agent.run(
+                caller_context(claims, request.message),
+                message_history=message_history(request.history),
+            )
     except Exception as exc:  # noqa: BLE001 — every outcome leaves a receipt
         # Without this, a model timeout or an unreachable MCP server is a bare
         # 500 and the audit page has nothing to say about it. Every other
@@ -183,6 +285,8 @@ async def chat(
             "answer_failed", sub=claims.sub, roles=claims.roles,
             detail={"reason": type(exc).__name__,
                     "tools_offered": sorted(allowed),
+                    "servers": reachable_servers(allowed),
+                    "reconnected": retried,
                     "latency_ms": round((time.perf_counter() - started) * 1000, 1)},
         )
         raise HTTPException(
@@ -214,6 +318,12 @@ async def chat(
         detail={
             "tools_used": tools_used,
             "tools_offered": sorted(allowed),
+            # Which servers this caller's roles even reached for. Next to
+            # tools_offered it is the registry-filtering claim in machine-
+            # readable form: pat's row names one server, and it is not the
+            # student record system.
+            "servers": reachable_servers(allowed),
+            "reconnected": retried,
             "latency_ms": round((time.perf_counter() - started) * 1000, 1),
             **usage.model_dump(),
         },

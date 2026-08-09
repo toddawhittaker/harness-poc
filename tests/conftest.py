@@ -46,6 +46,11 @@ MCP_SERVERS: dict[str, str] = {
     "mcp-kuali": os.environ.get("HARNESS_MCP_KUALI_URL", "http://localhost:8024"),
 }
 
+UI_APPS: dict[str, str] = {
+    "ui-advisor": os.environ.get("HARNESS_UI_ADVISOR_URL", "http://localhost:8080"),
+    "ui-exec": os.environ.get("HARNESS_UI_EXEC_URL", "http://localhost:8081"),
+}
+
 SESSION1_SERVICES: dict[str, str] = {
     "identity-stub": IDENTITY_URL,
     "gateway": GATEWAY_URL,
@@ -121,6 +126,17 @@ def stack_up(http: httpx.Client) -> None:
     """Session 1 services must be live before any test runs."""
     for name, base_url in SESSION1_SERVICES.items():
         _require_reachable(http, name, base_url, healthz=True)
+
+
+@pytest.fixture(scope="session")
+def ui_stack(http: httpx.Client) -> None:
+    """The two Chainlit surfaces. Requested only by @pytest.mark.session3 tests.
+
+    A bare GET returns the login page without a token, by design, so any status
+    counts as up; only a connection failure fails the session.
+    """
+    for name, base_url in UI_APPS.items():
+        _require_reachable(http, name, base_url, healthz=False)
 
 
 @pytest.fixture(scope="session")
@@ -604,6 +620,16 @@ class MCPSession:
             },
             headers=headers,
         )
+
+    def list_tools(self) -> set[str]:
+        """Every tool this server advertises, by name.
+
+        Unfiltered: an MCP server advertises its whole surface and refuses per
+        call. Narrowing by role happens in the orchestrator, above this.
+        """
+        payload = self._rpc("tools/list", {})
+        assert "error" not in payload, f"tools/list failed: {payload['error']}"
+        return {tool["name"] for tool in payload.get("result", {}).get("tools", [])}
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         payload = self._rpc("tools/call", {"name": name, "arguments": arguments})
