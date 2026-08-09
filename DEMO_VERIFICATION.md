@@ -17,7 +17,853 @@ fails the seed run if the shape above stops being true.
 
 ---
 
-# Session 8 verification — the current record
+# Session 9 verification — the current record
+
+Run 2026-08-09 20:15:36–20:19:26 UTC by the demo-verifier agent, against the
+live compose stack with all ten services healthy. Steps 1, 2, 3, 5, 6, 7 and 8
+were driven through the real Chainlit apps over socket.io with a real
+`POST /login` (ui-advisor on 8080, ui-exec on 8081); step 4 ran
+`./scripts/demo_bypass.sh` unmodified. This was a measurement pass: nothing was
+fixed and nothing in the repository was changed except this section.
+`git status --porcelain` lists the same seven entries before and after the run
+(six modified files plus the untracked `tests/test_orchestrator_receipts.py`).
+
+Audit rows **5087–5179** belong to this run. Rows **5087–5173** are the ten-step
+script, one clean pass each, 87 rows. Rows 5174–5179 are the four spec-fixed
+refusal probes at the tool layer, the dean-side asymmetry probe, and a direct
+probe of `get_my_advisees`'s count fields; they are not demo traffic. Rows
+5081–5086, which sit just *before* the window, are quoted once as corroborating
+evidence for change 1 and are likewise not demo traffic.
+
+This section supersedes the Session 8 record below it. Five changes landed
+between the two runs; the summary says which took.
+
+## Summary
+
+| # | SPEC §7 claim | Result | Change since Session 8 |
+|---|---|---|---|
+| 1 | Dana: struggling students, quiet ones flagged, `[colleague]` | PASS. All 9 students exact on id, name, program, GPA, login gap and every flag string. **Three of the tool's four counts are stated; `quiet_count` is not** | **change 4 took at the tool layer** (25/9/8/8), partly in the answer — see finding 9.5 |
+| 2 | Kim, the same words: aggregates, no individual names | PASS, and clean. Zero names, every figure exact, both sources cited. **No deliberation leak, no closing offer, no claim to a tool she does not hold** | **findings 8.2 and 8.3 both closed** |
+| 3a | Pat: courteous gate refusal | PASS | unchanged |
+| 3b | Pat: labor answer | PASS, top-5 growth and wage figures exact | unchanged |
+| 4 | The bypass, blocked at the MCP layer | **PASS, and finding 8.1 is closed.** The script printed `tools that actually ran: none`; row 5106 carries `tools_used: []`, `unoffered_calls: []`, and there is no phantom `tool_call` row | **change 1 took** |
+| 5a | Noor's own section | PASS, every figure and all 8 names exact, no regeneration | unchanged |
+| 5b | Noor refused by name | PASS on the claim; one guard fire, then the refusal relayed. **The relay is now a first-person paraphrase, not the tool's sentence verbatim** | shape regression — see finding 9.4 |
+| 5c | Kim's rollup | PASS, all 24 figures exact. **Needed a regeneration this time** (Session 8 did not) | guard fired where it did not before |
+| 6 | Dana: what should S-1055 take next term | PASS on the facts — every course, seat count, term, prereq, completion term and grade exact. **The answer carries no citation marker at all** | **new defect** — see finding 9.3 |
+| 7 | Qualification synthesis: strong, partial, miss | **PASS on the claim; the second partial is now a real partial.** ISA 8/8, Cloud **3/7**, Data Scientists 0/7 — all exact. **Net & Sys Admins stated 4 of 6 where the truth is 3 of 6**, and the error reaches the closing summary | **change 5 took**; new finding 9.1, and finding 8.4 recurs as 9.2 |
+| 8 | Gap synthesis: the two unmapped fast-growers | PASS. All six programs fetched (rows 5161–5166); all twelve per-program tallies, both catalog-wide gap sets and the crosswalk exact | unchanged and clean |
+| 9 | Audit page shows the session, refusals and bypass included | PASS. **Change 3 took**: the two guard rows now classify grey `error` and the error chip selects them | **change 3 took**; Session 8 note 1 closed |
+| 10 | Honesty slide claims | PASS — RS256 verified, independent validation verified by the bypass | unchanged |
+| A | Prompt-cache discipline (SPEC §1) | PASS — 20 model-call rows, 0 with zero hits, minimum 896 | unchanged |
+| B | Four spec-fixed refusal strings verbatim at the tool layer | PASS, all four, plus the faculty/dean asymmetry | unchanged |
+| C | Registry filtering visible in the trail | PASS — every `tools_offered` matches `registry.yaml`, and now `tools_used ⊆ tools_offered` on every row | strengthened by change 1 |
+| D | Two apps visibly distinct | PASS | unchanged |
+| E | No audit event dropped during the run | PASS — clean, 20:15:00Z to 20:24:02Z | unchanged |
+| F | Grey `error` rows during the script | **Two, both by design** — the guard's own rows. Zero `decision=error`, zero `auth_failed`, zero `router_parse_failed` | change 3 moved these rows into grey deliberately |
+| G | The groundedness guard | **2 fires, 2 true positives, 0 false positives, 0 declines, 0 provenance escapes** | up from 1 fire; step 5c joined step 5b |
+| H | Any answer with no citation marker at all | **Two: step 3a (correct) and step 6 (a defect)** | step 4 no longer among them; step 6 is new |
+| I | Any reply claiming a tool is unavailable when the caller holds it, or claiming one it does not | **None in either direction** | **change 2 took; finding 8.2 closed** |
+| J | Any section id or program code in none of the four databases | **None.** Every code named in every answer resolves | unchanged |
+
+**Verdict on the five changes.** All five took. Changes 1, 2 and 3 close
+findings 8.1, 8.2/8.3 and Session 8's audit-page note 1 outright. Change 4 took
+at the tool layer and only partly in the answer. Change 5 took exactly as
+specified — Cloud Infrastructure Architects is now 3 of 7 and the model states
+it correctly. The run produced one high-severity finding on step 7 (a wrong
+tally that reaches the read-out), one new defect on step 6 (no citation at all),
+and two smaller regressions of answer shape.
+
+---
+
+## Findings
+
+### 9.1 — Step 7 states one of its four headline tallies wrong, and repeats it in the summary
+
+**Severity: high. It is one of the four tallies the beat exists to show, it is
+self-contradictory on its own line, and it survives into the closing paragraph
+the room actually reads.**
+
+The answer says:
+
+> **Network and Computer Systems Administrators** (21.5% growth, $95,360
+> median): 4 of 6 skills covered — network engineering, systems administration,
+> technical documentation, and (partial, but no cloud architecture or
+> containerization or infrastructure automation).
+>
+> Missing: cloud architecture, containerization, infrastructure automation.
+
+Three skills are named as covered, three as missing, and the tally is stated as
+4 of 6. The truth, by exact skill-string intersection against `data/kuali.db`
+and `data/labor.db`:
+
+```
+15-1244 skills (6): cloud architecture, containerization, infrastructure automation,
+                    network engineering, systems administration, technical documentation
+CYB-BS covers:      network engineering, systems administration, technical documentation
+                    -> 3 of 6
+```
+
+The trailing clause — "and (partial, but no cloud architecture or
+containerization or infrastructure automation)" — is a fourth bullet that names
+no skill and appears to be what the model counted. The error is not confined to
+scratch-work: the closing summary repeats it.
+
+> The next-closest matches among fast-growing roles are Network and Computer
+> Systems Administrators (4 of 6 skills, 21.5% growth) and Cloud Infrastructure
+> Architects (3 of 7 skills, 33.8% growth)
+
+Session 8's equivalent error (finding 8.4) stayed in the scratch-work and the
+summary was clean. This one does not.
+
+### 9.2 — The wrong-denominator error of finding 8.4 recurs, on the same occupation class
+
+> **Software Developers** (17.9% growth, $132,270 median): 2 of 7 skills
+> covered — API design, technical documentation.
+
+`15-1252` has six skills, not seven (`API design`, `algorithm design`,
+`distributed systems`, `project management`, `software development`,
+`technical documentation`). The numerator is right — and it is right for the new
+reason, since `API design` is the skill change 5 added to CYB-410 — so the
+correct tally is 2 of 6. Session 8 recorded the same occupation with the same
+inflated denominator. Two sessions running, this is the model inventing a
+seventh skill for a six-skill occupation.
+
+### 9.3 — Step 6's answer carries no citation marker at all
+
+**Severity: medium. SPEC §7.6 names the citation explicitly, and the
+groundedness guard is structurally unable to catch this.**
+
+Every fact in step 6's reply is correct and every one of them came from
+`data/colleague.db` via two tool calls (rows 5131, 5132). The reply contains no
+`[colleague]`, and no marker of any kind:
+
+> Leon Cline (CS-BS, 3.41 GPA) has three courses available next term (2027SP):
+> 1. **CS-310 — Algorithms** (3 credits, 36 seats). Prereq CS-201 satisfied (2024FA, C).
+
+SPEC §7.6 says this beat is cited `[colleague]`, and SPEC §4.3 tells the model
+to cite every fact. Step 6 is also the one beat whose whole point is *which
+source knows what* — Colleague knows what comes next, Canvas knows this week —
+so an uncited answer undercuts the narration the presenter says over it.
+
+The guard cannot help. `grounding.check` compares the markers a reply carries
+against the servers its executed tools reached; a reply with zero markers has
+nothing to contradict, so it passes. An answer that cites nothing is a different
+failure from an answer that cites wrongly, and only the second is instrumented.
+
+### 9.4 — Step 5b no longer relays the tool's refusal verbatim
+
+The tool returned, and row 5118 records, the spec-fixed sentence:
+
+> Section BUS-201-A is not among your assigned sections; cross-section views
+> belong to the dean.
+
+What reached the screen was:
+
+> BUS-201-A is not among my assigned sections; cross-section views belong to the
+> dean [canvas].
+
+Second person became first, and the leading word "Section" was dropped. The
+meaning survives and the boundary is still named, so the beat lands; but SPEC
+§4.6 fixes this string ("make it exact") and Session 8 relayed it exactly. The
+enforcement claim is untouched — the refusal at the tool layer is verbatim, as
+check B shows. This is the relay, not the rule.
+
+### 9.5 — Step 1 states three of the four counts, and closes on a non-sequitur
+
+Change 4 landed: a direct call to `get_my_advisees` as dana (row 5179) returns
+
+```
+advisee_count = 25   flagged_count = 9   quiet_count = 8   flagged_and_quiet_count = 8
+```
+
+The answer opens:
+
+> 9 of your 25 advisees have term grade flags, and 8 of those 9 also haven't
+> logged in for more than 10 days.
+
+That is `advisee_count`, `flagged_count` and `flagged_and_quiet_count`, verbatim
+and with no recounting. `quiet_count` is never stated on its own. In this seed
+the omission is invisible, because every quiet advisee is also flagged and the
+two numbers are the same 8 — which is itself a seed problem, see the seed-data
+assessment below.
+
+The reply also ends on a sentence that argues with itself:
+
+> The remaining 16 advisees have no term grade flags, though 1 of them — Sean
+> Ramsey (S-1039) — logged in today and carries no flags.
+
+"Though" promises a contrast and delivers a restatement; S-1039 is a real
+student with real values (CYB-BS, 0 days, no flags) and no reason to be singled
+out. On a projector it is the last thing the room reads on the demo's opening
+beat.
+
+### 9.6 — The rule-5 narration leak, recorded and not treated as new
+
+Accepted as cosmetic by the session brief, and it occurred on both synthesis
+beats. Step 7 opens "Now let me analyze the skills match for each of the top
+occupations against the CYB-BS skills covered." Step 8 opens "Now let me do the
+skill matching." and then prints its entire per-program working — six programs,
+fourteen ✓/✗ lines — before the horizontal rule and the real answer. Step 8's
+scratch-work is 60% of a 6,990-character reply. The closing-offer relapse of
+Session 8 finding 8.3 did **not** recur: no reply in this run ends by offering
+to go further.
+
+---
+
+## Numbered walk-through
+
+### 1 — Dana, ui-advisor: "Which students seem to be struggling this term?"
+
+**Request.** `POST /login` as dana on 8080, then one `client_message` over
+socket.io. Audit 5087–5091.
+
+**Expected per spec.** Her 25 — the only students her tools reach — the quiet
+ones flagged, cited `[colleague]`.
+
+**Actual.** Nine students, ordered most to least urgent, each with id, program,
+GPA, login gap and its flag text, every line carrying `[colleague]`. One tool
+call, `get_my_advisees`, no regeneration.
+
+Checked against `data/colleague.db`:
+
+```
+advisees=25  flagged=9  quiet(last_login_days>10)=8  flagged AND quiet=8
+
+S-1054  Zachary Hendricks  IS-MS   2.08  25d  IS-500 D at midterm
+S-1049  Krista Leblanc     BUS-BS  1.94  21d  BUS-150 missing 3 assignments
+S-1052  Elliot Maldonado   IS-MS   2.28  23d  IS-500 withdrew from a co-requisite
+S-1047  Patrick Novak      BUS-BS  2.61  19d  BUS-150, BUS-230 no submissions in 2 weeks
+S-1035  Leon Delgado       BUS-BS  1.85  13d  BUS-310, BUS-330 incomplete carried
+S-1043  Patrick Walsh      IS-MS   2.67  17d  IS-520 incomplete carried; IS-540 D at midterm
+S-1038  Olivia Tate        HIM-BS  2.60  15d  HIM-110 withdrew from a co-requisite
+S-1045  Emily Vaughn       DAT-MS  2.44   0d  DAT-610 D at midterm; DAT-620 no submissions
+S-1031  Emily Bryant       CS-BS   2.69  11d  CS-210 withdrew; CS-310 no submissions
+```
+
+Every id, name, program, GPA, login gap and flag string in the answer matches,
+including all fourteen flag texts. `S-1039 Sean Ramsey` is real too (CYB-BS,
+0 days, unflagged).
+
+**PASS**, with finding 9.5 on the fourth count and the closing sentence.
+
+### 2 — Kim, ui-exec, the same words
+
+**Request.** `POST /login` as kim on 8081, the same sentence as step 1, fresh
+session. Audit 5092–5098.
+
+**Expected per spec.** Program aggregates, no individual names; the role alone
+decides the scope.
+
+**Actual.** Zero student names. Two tools, `get_program_summaries` and
+`get_program_engagement_rollup`. Opens on the spread:
+
+> **Business Administration (BUS-BS) is the most troubled program by a wide
+> margin.** 25% of its 48 students have been quiet for over 10 days
+> [colleague], and only 63.6% logged in this week — the lowest engagement rate
+> across all six programs [canvas]. It also carries the lowest average GPA at
+> 2.81 [colleague].
+
+Colleague side, checked against `data/colleague.db`:
+
+```
+program  n   gpa   quiet%
+BUS-BS   48  2.81  25.0
+HIM-BS   48  3.06  10.4
+CS-BS    49  3.10   8.2
+IS-MS    57  3.11   8.8
+DAT-MS   43  3.14   2.3
+CYB-BS   55  3.17   9.1
+```
+
+Canvas side — 63.6 / 77.4 / 80.0 / 86.0 / 89.7 / 95.0 and missing counts
+12 / 22 / 10 / 28 / 24 / 16 — is exact against `data/canvas.db`. Every figure
+the answer states is one of these, correctly attributed to its source.
+
+**The three Session 8 warts are all gone.** No visible deliberation, no closing
+offer, and no claim to `get_my_sections` or any other tool kim does not hold —
+row 5098's `tools_offered` is the ten dean tools and the reply names none
+outside them. Findings 8.2 and 8.3 are closed.
+
+One loose edge, not a finding: "only 10 missing submissions — low missing count
+relative to its 57 students" puts a Canvas numerator over a Colleague
+denominator (20 students are enrolled in IS-MS sections this week). Both figures
+are exact and both are cited to the right source.
+
+**PASS.**
+
+### 3 — Pat, ui-exec: refused, then answered
+
+**Request.** Two turns as pat on 8081. Audit 5099–5105.
+
+**Expected per spec.** Courteous gate refusal, then the labor question answered.
+
+**Actual, turn 1.** Row 5100 `refused_at_gate`, 1829.6 ms, intent
+`advisee_detail`. Nothing reached the orchestrator; the UI printed
+`no tools called`.
+
+> Individual student progress is held by advisors, by assignment, and by faculty
+> for their own sections. As an adjunct, you have access to labor-market data —
+> occupations, wages, projected growth, and skills — if that would help.
+
+Courteous, names the boundary, names what pat *can* have, and cites nothing,
+correctly — no tool ran.
+
+**Actual, turn 2.** Routed, `list_occupations`, `[labor]`. Top five against
+`data/labor.db`:
+
+```
+15-2099  AI/ML Engineers                       35.2  136620
+15-1241  Cloud Infrastructure Architects       33.8  130390
+15-1212  Information Security Analysts         32.7  120360
+15-2051  Data Scientists                       28.4  108020
+11-9111  Medical and Health Services Managers  24.1  110680
+```
+
+All ten figures exact, and the aside — Computer and Information Systems Managers
+highest paid at $169,510, growing 15.4% — is exact too.
+
+**PASS on both.**
+
+### 4 — The bypass
+
+**Request.** `./scripts/demo_bypass.sh`, unmodified. Audit 5106–5107.
+
+**Expected per spec.** Mints pat's token, curls the orchestrator directly,
+mcp-colleague refuses, the refusal lands amber in the audit view.
+
+**Actual.** All four stages ran. Stage 2 printed:
+
+```
+    tools that actually ran: none
+```
+
+which is **the Session 8 defect closed**. Row 5106 records `tools_used: []`,
+`unoffered_calls: []`, `tools_offered: ["get_occupation", "list_occupations"]`,
+and there is no `tool_call` row for pat anywhere between 5106 and the refusal —
+no phantom, and nothing green claiming a call that never happened. Stage 2's
+reply is honest about pat's tools and free of any marker, correctly:
+
+> I don't have a tool to look up your advisees, Pat. The tools I have available
+> are from the labor-market server, covering occupations, wages, growth, and
+> skills. I can't access student records, degree progress, or advising rosters.
+
+Stage 3's direct call to mcp-colleague returned:
+
+```
+Error executing tool get_my_advisees: get_my_advisees requires the advisor role.
+isError: True
+```
+
+Row 5107, `mcp-colleague / tool_call / pat / adjunct / refused`, amber in the
+viewer. The refusal came from the tool server, which re-validated pat's token
+itself; no layer above it was involved.
+
+**Corroboration that the new path is not merely dormant.** The model did not
+reach for an unoffered tool during this run, so the window contains no
+`unoffered` row. Rows 5081–5086 — three requests as pat at 20:12, immediately
+before the window and not demo traffic — show the mechanism firing: each
+`answer_returned` carries `unoffered_calls: ["get_my_sections"]` with
+`tools_used: []`, each is paired with an `orchestrator tool_call` row whose
+detail is `{"tool": "get_my_sections", "via": "orchestrator", "decision":
+"unoffered"}`, and there is no mcp-canvas row for pat anywhere near them.
+
+**PASS.**
+
+### 5a — Noor, ui-advisor: "How is my CYB-310 section doing this week?"
+
+**Request.** `POST /login` as noor on 8080. Audit 5108–5114.
+
+**Expected per spec.** Live-ish engagement for her own section, `[canvas]`.
+
+**Actual.** `get_my_sections` then `get_section_engagement`, no regeneration.
+
+> CYB-310 is in good shape this week. All 8 students logged in, and there are
+> only 3 missing submissions across the section [canvas].
+
+Against `data/canvas.db`, CYB-310-A: 8 students, last logins 1–3 days, missing
+2 + 1 = 3. The two named students — Alicia Lombardi 3 days / 6 of 8 / 2 missing,
+Theresa Whitfield 2 days / 7 of 8 / 1 missing — are exact, and the six others
+named (Brandon Sharma, Jenna Kaur, Christopher Chan, Derek Hoffman, Zachary
+Whitfield, Nathan Leblanc) are the exact remaining roster.
+
+**PASS.**
+
+### 5b — Noor: "And how's BUS-201-A doing?"
+
+**Request.** Second turn in the same session, with history. Audit 5115–5122.
+
+**Expected per spec.** Refused by name — not her section.
+
+**Actual.** Row 5117 is a guard fire: attempt 1 cited `[colleague]` having
+reached only canvas. The regeneration called `get_section_engagement` for
+BUS-201-A (row 5118, refused, the spec-fixed sentence) and relayed it. What
+reached the screen, in full:
+
+> BUS-201-A is not among my assigned sections; cross-section views belong to the
+> dean [canvas].
+
+One flat sentence, correct marker, zero invented section ids — `NET-131-D` and
+`NET-425-A` return zero hits across `sqlite3 .dump` of all four databases and
+appear nowhere in this run. The paraphrase is finding 9.4.
+
+**PASS on the claim.**
+
+### 5c — Kim: "How's engagement across all programs this week?"
+
+**Request.** `POST /login` as kim on 8081, fresh session. Audit 5123–5129.
+
+**Expected per spec.** The rollup — the dean sees the building.
+
+**Actual.** One tool, `get_program_engagement_rollup`, called twice: attempt 1
+cited `[colleague]` having reached only canvas, the guard fired (row 5125), and
+the regeneration re-called the tool and answered with `[canvas]`. The table
+against `data/canvas.db`:
+
+```
+program  enrolled  sections  %login  missing
+BUS-BS   22        4         63.6    12
+HIM-BS   31        3         77.4    22
+IS-MS    20        2         80.0    10
+CYB-BS   43        5         86.0    28
+DAT-MS   29        3         89.7    24
+CS-BS    20        3         95.0    16
+```
+
+All 24 figures exact. The read-out is right too: BUS-BS the only program under
+75%, "roughly 8 of its 22 students" (8 of 22 is 36.4%, the complement of 63.6%),
+CYB-BS highest on raw missing count, CS-BS best login rate.
+
+**PASS**, one regeneration.
+
+### 6 — Dana, ui-advisor: "What should S-1055 take next term?"
+
+**Request.** `POST /login` as dana on 8080, fresh session. Audit 5130–5136.
+
+**Expected per spec.** Degree progress, prereqs met, next-term offerings,
+`[colleague]`.
+
+**Actual.** Two tools this time, `get_student_summary` and
+`get_next_term_options`; `get_student_degree_progress` was offered (row 5136
+lists it) and not called. Three open options with credits, seat counts and the
+term, one blocked, every prereq named with its completion term and grade.
+
+Against `data/colleague.db`: Leon Cline, CS-BS, GPA 3.41, last login 3 days;
+completed CS-101 2024FA A, CS-201 2024FA C, CS-320 2025SP A; registered CS-210
+2026FA; `next_term_schedule` gives CS-310/36, CS-350/21, CS-410/35 in 2027SP;
+`courses` gives the titles Algorithms, Software Engineering, Cloud Architecture
+at 3 credits each; `course_prereqs` gives CS-310←CS-201, CS-350←CS-201,
+CS-410←CS-320 and CS-460←{CS-310, CS-350}. Every fact in the answer is in the
+database and no fact in the answer is not.
+
+**PASS on the facts. The reply carries no citation marker at all** — finding
+9.3. Without `get_student_degree_progress` the answer also says nothing about
+credits completed against the degree, which is the "degree progress" half of the
+spec's phrase; the prereq detail carries the beat, so this is noted rather than
+counted against it.
+
+### 7 — Kim: qualification synthesis
+
+**Request.** `POST /login` as kim on 8081, fresh session. Audit 5137–5154.
+
+**Expected per spec.** CYB outcomes' skills matched against occupation skills: a
+strong match, a partial, a miss — `[kuali]` and `[labor]` interleaved.
+
+**Actual.** `list_programs_catalog`, `get_course_outcomes` (once, CYB-BS),
+`list_occupations`, and eight `get_occupation` calls. The answer lists CYB-BS's
+16 skills and they match `data/kuali.db` exactly, `API design` among them —
+change 5, visible in the answer.
+
+Every tally the answer states, recomputed here by skill-string intersection
+against `data/kuali.db` and `data/labor.db`:
+
+```
+occupation                                   growth  answer   truth
+Information Security Analysts                 32.7    8 of 8   8/8   strong  ✓
+Cloud Infrastructure Architects               33.8    3 of 7   3/7   partial ✓
+AI/ML Engineers                               35.2    0 of 7   0/7   miss    ✓
+Data Scientists                               28.4    0 of 7   0/7           ✓
+Medical and Health Services Managers          24.1    1 of 5   1/5           ✓
+Network and Computer Systems Administrators   21.5    4 of 6   3/6   <-- 9.1
+Software Developers                           17.9    2 of 7   2/6   <-- 9.2
+Computer and Information Systems Managers     15.4    1 of 5   1/5           ✓
+```
+
+**The four tallies the session brief fixes are: Information Security Analysts
+8/8 — stated correctly; Network and Computer Systems Administrators 3/6 —
+stated as 4 of 6, wrong; Cloud Infrastructure Architects 3/7 — stated
+correctly; Data Scientists 0/7 — stated correctly.** The three named Cloud
+matches (API design, network engineering, systems administration) are exactly
+the three the databases give, so change 5 took in substance and not merely in
+arithmetic. Growth and wage figures are all exact, the three spec shapes are all
+present and correctly labelled, and `[kuali][labor]` is interleaved throughout.
+
+**PASS on the claim and on six of eight tallies.** See findings 9.1 and 9.2.
+
+### 8 — Kim: gap synthesis
+
+**Request.** `POST /login` as kim on 8081, fresh session. Audit 5155–5173.
+
+**Expected per spec.** AI/ML Engineers and Cloud Infrastructure Architects
+surface, with the adjacent existing outcomes noted, and a claim that a skill is
+missing across the catalog made only after every program's outcomes have been
+fetched.
+
+**Actual.** Rows 5161–5166 are **six** `get_course_outcomes` calls — every
+program in the catalog, fetched before the claim — plus `list_programs_catalog`,
+`list_occupations`, `get_program_occupation_map` and two `get_occupation` calls.
+
+The six per-program skill lists in the answer are exact against
+`data/kuali.db`, all 78 entries. Every per-program tally is exact:
+
+```
+                  AI/ML Engineers (7)   Cloud Infra Architects (7)
+BUS-BS            1                     0
+CS-BS             4                     4
+CYB-BS            0                     3
+DAT-MS            4                     0
+HIM-BS            1                     0
+IS-MS             1                     4
+missing catalog-  deep learning         containerization,
+wide                                    infrastructure automation
+```
+
+Twelve of twelve, and both catalog-wide gap sets, exact. The crosswalk claim
+holds: `program_occupation_map` has rows for ten SOC codes and neither `15-2099`
+nor `15-1241` is among them. CYB-BS's Cloud tally moved from 2 to 3 with change
+5 and the answer states 3, consistent with step 7.
+
+Note for the record: `containerization` remains absent from every program's
+outcomes, so change 5 did not disturb the skill this beat is built on.
+
+**PASS**, with the narration leak of finding 9.6.
+
+### 9 — The audit page
+
+**Expected per spec.** Full-screen, scroll the session just performed —
+refusals, the bypass, every tool, every role.
+
+**Actual.** `GET /` on 8030 returns 200 and serves the page, 13,577 bytes,
+self-contained. Every step is on it: 87 rows for the ten steps, six services,
+all four roles, `refused_at_gate` for step 3a, the mcp-colleague refusal for
+step 4, the mcp-canvas refusal for step 5b.
+
+**Change 3 assessed on the beat it was built for.** Applying the shipped
+`rowClass` to this run's window (5087–5173):
+
+```
+ok 82   refused 3   error 2   auth failed 0
+```
+
+- The **refused** chip isolates exactly the three refusals of the whole demo:
+  row 5100 (the gate refusal), 5107 (the bypass), 5118 (noor's cross-section).
+  That is the FERPA argument on one screen.
+- The **error** chip now isolates rows 5117 and 5125 — the two guard fires. This
+  is Session 8's note 1 closed: `answer_ungrounded` no longer falls through to
+  green, and the most interesting rows in the run are now both visually distinct
+  (`tbody tr.error td.event` in grey) and selectable. Row colours and chip
+  membership still come from the same `rowClass`, so a chip cannot select a set
+  the colours disagree with.
+- Session 8's note 2 is now **stale in the good direction**: on this run the
+  error chip is *not* empty. A presenter who clicks it gets two rows and a story
+  to tell about them. `auth failed` remains empty, correctly.
+
+**PASS.**
+
+### 10 — The honesty slide
+
+**Expected per spec.** Fake identities and data; real tokens, validation, gate,
+agent loop, tool layer, audit.
+
+**Actual, claim by claim.**
+
+- *Fake identities and data* — five personas from `config/personas.yaml`; four
+  SQLite files from `scripts/seed.py`, `random.seed(398)`.
+- *Real tokens* — `GET /jwks.json` serves an RSA key, `alg RS256`, `kid
+  7555cce239506ffa`; a live token's header is
+  `{"alg":"RS256","kid":"7555cce239506ffa","typ":"JWT"}` and its claims are
+  `iss http://identity-stub:8001`, `aud harness-poc`, `sub dana`,
+  `name Dana Whitfield`, `roles ["advisor"]`, `exp - iat = 28800` (+8h, SPEC §3).
+- *Real validation, independently at every layer* — proved by the bypass: with
+  the gateway and the orchestrator both skipped, mcp-colleague still validated
+  pat's token and still refused (row 5107).
+- *Real gate* — row 5100, `refused_at_gate`, before any tool server was reached.
+- *Real agent loop* — 35 `tool_call` rows against all four MCP servers in this
+  run's script (labor 14, kuali 9, canvas 7, colleague 5).
+- *Real tool layer* — the four spec-fixed refusals, verbatim, at check B.
+- *Real audit* — 87 rows for ten steps, none dropped.
+
+SPEC §11's shortcuts are all still true as written and none was hidden by this
+run.
+
+**PASS.**
+
+---
+
+## Standing checks
+
+### (A) Prompt-cache discipline
+
+Twenty rows in the window carry cache statistics: ten `router_classified` from
+the gateway and ten `answer_returned` from the orchestrator (each of the latter
+aggregating that request's model calls).
+
+```
+minimum prompt_cache_hit_tokens  896
+rows with zero hits              0
+```
+
+The router's static prefix caches at 896 tokens on every single call, with 53–73
+miss tokens — the question and the roles, exactly the dynamic part. The
+orchestrator's hits are 2304, 4352, 4864, 4992, 5632, 6016, 7040, 8320, 10112
+and 10496, scaling with the tool set the role is offered rather than with the
+question. **No call in this run had zero cache hits. PASS.**
+
+### (B) The four spec-fixed refusal strings, verbatim at the tool layer
+
+Probed directly against the MCP servers with real tokens, orchestrator not in
+the path (rows 5174–5177):
+
+| Caller | Tool | Spec string | Verbatim |
+|---|---|---|---|
+| pat | `get_my_advisees` | `get_my_advisees requires the advisor role.` | yes |
+| dana | `get_student_summary(S-1200)` | `Student S-1200 is not among your assigned advisees.` | yes |
+| kim | `get_student_summary(S-1055)` | `Individual student records require an advisor assignment; deans receive aggregates.` | yes |
+| noor | `get_section_engagement(BUS-201-A)` | `Section BUS-201-A is not among your assigned sections; cross-section views belong to the dean.` | yes |
+
+And the asymmetry SPEC §6 requires: kim calling `get_section_engagement` for
+BUS-201-A **succeeds** (row 5178, `decision ok`, two students returned) where
+noor is refused for the same section with the same argument hash
+(`8dcd893de78e` on both rows). **PASS, all four plus the asymmetry.**
+
+### (C) Registry filtering, and `tools_used ⊆ tools_offered`
+
+Every `answer_returned` row's `tools_offered` matches `config/registry.yaml`
+exactly for the caller's roles:
+
+```
+dana   (advisor) 8 tools
+kim    (dean)   10 tools
+noor   (faculty) 6 tools
+pat    (adjunct) 2 tools   get_occupation, list_occupations
+```
+
+And, new this session, checked mechanically across all ten `answer_returned`
+rows (5091, 5098, 5104, 5106, 5113, 5121, 5128, 5136, 5151, 5172):
+
+```
+rows where tools_used is NOT a subset of tools_offered   0
+rows missing the unoffered_calls field                   0
+rows with a non-empty unoffered_calls                    0
+tool_call rows with decision "unoffered"                 0
+```
+
+**PASS.** The receipt now says what ran. The dormant half of the mechanism is
+evidenced by rows 5081–5086, quoted at step 4.
+
+### (D) Two apps visibly distinct
+
+`<title>Advisor Workspace</title>` on 8080 against `<title>Executive
+Insights</title>` on 8081; `harness_chat.py` byte-identical between them
+(`bc7ebfbc42ce92974486216bcf980ba3` both), which is the design. Noor signed into
+ui-advisor and kim into ui-exec, each with the tool set her token dictates, not
+the door's. **PASS.**
+
+### (E) No audit event dropped
+
+```
+docker compose logs --since 2026-08-09T20:15:00Z | grep -i dropped
+→ clean
+```
+
+Run window start 20:15:00Z, end 20:24:02Z (the grep was taken at 20:24:02Z,
+after the probes). That brackets rows 5087–5179, whose timestamps run
+20:15:36Z to 20:22:28Z. The test suite was not run in or near this window, so
+the expected `auth_failed` drop from the disruptive test is not in play.
+**PASS — zero dropped.**
+
+### (F) Grey `error` rows, `auth_failed` rows, `router_parse_failed` rows
+
+```
+rows with detail.decision == "error"   0
+auth_failed events                     0
+router_parse_failed events             0
+rows painted grey by rowClass          2   (5117, 5125 — both answer_ungrounded)
+```
+
+The two grey rows are change 3 working as designed, not failures. **PASS.**
+
+### (G) The groundedness guard
+
+**Two fires, both true positives.**
+
+```
+5117  orchestrator  answer_ungrounded  noor  faculty
+      {"attempt": 1, "markers": ["colleague"],
+       "reason": "cited [colleague], but this request reached canvas.",
+       "tools_used": ["get_my_sections"], "outcome": "regenerating"}
+
+5125  orchestrator  answer_ungrounded  kim   dean
+      {"attempt": 1, "markers": ["colleague"],
+       "reason": "cited [colleague], but this request reached canvas.",
+       "tools_used": ["get_program_engagement_rollup"], "outcome": "regenerating"}
+```
+
+Both are the same mistake — citing the system of record for a Canvas figure —
+and both regenerated successfully: rows 5121 and 5128 carry `regenerated: true`
+and `ungrounded: false`, and both final answers cite `[canvas]` correctly.
+`outcome: "declined"` never occurred, no returned answer carries
+`ungrounded: true`, and the flat sentence "I can't ground an answer to that with
+the tools available." was shown to nobody.
+
+False positives: 0 — steps 1, 2, 3b, 4, 5a, 6, 7 and 8 all returned with both
+flags false. Step 7, the case most at risk, has now not fired for four runs.
+
+Provenance escapes: 0. Marker by marker against the servers each request's
+**executed** tools actually reached:
+
+| Step | Markers in the reply | Servers a tool actually reached | Verdict |
+|---|---|---|---|
+| 1 | `[colleague]` | colleague | grounded |
+| 2 | `[colleague]`, `[canvas]` | colleague, canvas | grounded |
+| 3a | none | none (gate refusal) | grounded |
+| 3b | `[labor]` | labor | grounded |
+| 4 | none | none | grounded, uncited |
+| 5a | `[canvas]` | canvas | grounded |
+| 5b | `[canvas]` | canvas | grounded (after one fire) |
+| 5c | `[canvas]` | canvas | grounded (after one fire) |
+| 6 | **none** | colleague | **uncited — see finding 9.3** |
+| 7 | `[kuali]`, `[labor]` | kuali, labor | grounded |
+| 8 | `[kuali]`, `[labor]` | kuali, labor | grounded |
+
+Step 8 wrote `[kuali] [labor]` as two adjacent markers this run rather than
+Session 8's `[kuali + labor]`; the cosmetic oddity is gone.
+
+**Up from 1 fire to 2; still 100% true positive; still no escape.** The rise is
+step 5c joining step 5b, and both are the same colleague/canvas confusion.
+
+### (H) Any answer with no citation marker at all
+
+**Two.** Step 3a is correct — a gate refusal reaches no tool and cites nothing.
+Step 4's orchestrator reply likewise reports having no relevant tools and cites
+nothing, which is defensible and is the same shape Session 8 recorded. Step 6 is
+the defect: two tool calls, a page of Colleague facts, no marker (finding 9.3).
+
+### (I) Any reply claiming a tool is unavailable when the caller holds it, or claiming one it does not
+
+**None in either direction.** Change 2's "when you hold them" qualifier is in
+`prompts.py:57` and the failure mode it targets did not appear: kim's step 2
+reply makes no claim about `get_my_sections` or any other tool outside her ten,
+and no reply denies a tool its caller holds. Session 8 finding 8.2 is closed.
+
+### (J) Any section id or program code in none of the four databases
+
+**None.** Every course code, section id, program code and SOC code named in any
+answer — CS-101/201/210/310/320/350/410/460, CYB-310, CYB-310-A, BUS-201-A,
+BUS-150/230/310/330, IS-500/520/540, DAT-610/620, HIM-110, all six program
+codes and all twelve SOC codes — resolves in `sqlite3 .dump` of one of the four
+databases. `NET-131-D` and `NET-425-A` return zero hits and appear nowhere.
+
+---
+
+## Audit row map
+
+```
+5081–5086  (not the script) three pat requests at 20:12 that show the
+                     unoffered_calls path firing — quoted as evidence at step 4
+5087–5091  step 1  — dana, ui-advisor
+5092–5098  step 2  — kim, ui-exec, the same words
+5099–5100  step 3a — 5100 is the gate refusal
+5101–5105  step 3b — the labor answer
+5106–5107  step 4  — the bypass; 5106 is the orchestrator's direct answer with
+                     tools_used [] and NO phantom row, 5107 is mcp-colleague refusing
+5108–5114  step 5a — noor's own section, no regeneration
+5115–5122  step 5b — 5117 is a guard fire, 5118 the amber refusal
+5123–5129  step 5c — 5125 is a guard fire, kim's rollup regenerated
+5130–5136  step 6  — S-1055, two tools
+5137–5154  step 7  — one get_course_outcomes call (CYB-BS) and eight get_occupation
+5155–5173  step 8  — 5161–5166 are the six get_course_outcomes calls
+5174–5178  (not the script) the four spec-fixed refusal probes plus the dean
+                     asymmetry probe
+5179       (not the script) a direct probe of get_my_advisees' four count fields
+```
+
+Guard rows, for the record: **5117** (noor, step 5b) and **5125** (kim, step 5c),
+both `attempt: 1`, both `outcome: "regenerating"`, both true positives; the
+`answer_returned` rows they belong to are **5121** and **5128**.
+
+Latency across the ten orchestrator requests, ms:
+
+```
+5091 step 1    8161.4
+5098 step 2    9912.1
+5104 step 3b   5086.7
+5106 step 4    1719.9
+5113 step 5a   6707.1
+5121 step 5b   6753.4   REGENERATED
+5128 step 5c  11433.6   REGENERATED
+5136 step 6    6448.7
+5151 step 7   14484.6
+5172 step 8   24322.7
+```
+
+Minimum 1720, maximum 24323, median 7457. Every step returns inside the
+120-second UI timeout with room to spare, and the two synthesis beats are the
+slow ones, as they have been every session.
+
+---
+
+## Seed-data assessment
+
+**Change 5 is confirmed and closes the Session 8 step-7 observation.** Adding
+`API design` to a CYB-410 outcome lifts Cloud Infrastructure Architects from
+2 of 7 to **3 of 7** by exact skill-string intersection, and the model states
+that tally and names the three matching skills correctly. Step 7 now shows a
+strong match (Information Security Analysts 8 of 8), two partials (Network and
+Computer Systems Administrators 3 of 6 and Cloud 3 of 7) and a miss (AI/ML
+Engineers and Data Scientists, both 0 of 7), which is the shape SPEC §5 asks
+for. Step 8 is undisturbed: `containerization` and `infrastructure automation`
+are still absent from every program in the catalog, so the gap beat's
+load-bearing fact survives. **Nothing further is needed here.**
+
+**One answer is mushy, and it is demo moment 1's fourth count.**
+
+Every one of dana's 8 quiet advisees is also flagged. `quiet_count` and
+`flagged_and_quiet_count` are therefore both 8 and name the same eight students,
+and the set "quiet but not flagged" is empty:
+
+```
+advisee_count 25   flagged_count 9   quiet_count 8   flagged_and_quiet_count 8
+students who are quiet and unflagged: none
+```
+
+Change 4 was meant to let the opening line state four facts. Three of them are
+distinct; the fourth is a restatement of the third, which is very likely why the
+model stated only three ("9 of your 25 advisees have term grade flags, and 8 of
+those 9 also haven't logged in for more than 10 days") and then padded with the
+Sean Ramsey non-sequitur. A count that is definitionally equal to another count
+gives the model nothing to say and gives the room nothing to learn.
+
+**Proposed adjustment, not applied.** In `scripts/seed.py`, leave two of dana's
+eight quiet advisees unflagged — the cheapest candidates are the two with the
+mildest single flags among the quiet group, S-1049 (BUS-150, "missing 3
+assignments") and S-1052 (IS-500, "withdrew from a co-requisite"), whose GPAs
+(1.94 and 2.28) already justify attention without a term flag. The four counts
+would then read **25 advisees, 9 flagged, 8 quiet, 6 both**, four distinct
+facts, and the answer gains a genuinely interesting category — the students who
+have gone quiet before any flag has been raised, which is the group an advisor
+most wants surfaced. This does not touch SPEC §5's "deliberate tail of 8
+students >10 among dana's advisees": the tail stays at 8. It also does not touch
+step 6, whose `verify()` guard is about S-1055 and S-1042.
+
+**Nothing else in this run was mushy.** Step 2's spread, step 6's S-1055 shape
+and step 8's catalog gaps all held. Where an answer was wrong this session —
+step 7's 4 of 6, step 7's 2 of 7, step 6's missing citation — it was the model's
+arithmetic or the model's omission, not the seed's.
+
+---
+
+# Session 8 verification — superseded by Session 9 above
 
 Run 2026-08-09 19:06:03–19:15:17 UTC by the demo-verifier agent, against the
 live compose stack with all ten services healthy. Steps 1, 2, 3, 5, 6, 7 and 8
