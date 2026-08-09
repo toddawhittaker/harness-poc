@@ -43,9 +43,8 @@ class UnknownOccupation(ValueError):
     """
 
 
-def refuse(message: str) -> ToolError:
-    """A refusal the orchestrator's model can relay unchanged."""
-    return ToolError(message)
+# No refuse() helper here, unlike the other three servers: SPEC §4.5 gives this
+# server's data to every authenticated role, so nothing on it refuses anybody.
 
 
 def _args_hash(args: dict[str, Any]) -> str:
