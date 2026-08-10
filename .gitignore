@@ -1,4 +1,10 @@
+# .env and any variant of it — .env.local, .env.prod, a .env.bak someone makes
+# before editing. Only the checked-in template is exempt. A stray backup of a
+# real .env is untracked but not ignored without the second line, which is one
+# `git add -A` away from publishing an API key.
 .env
+.env.*
+!.env.example
 
 # data/ holds three different kinds of thing and they are treated differently.
 # Note this is `data/*` rather than `data/`: git does not descend into an
