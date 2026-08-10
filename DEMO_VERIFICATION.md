@@ -67,7 +67,42 @@ never in the app.
 
 ---
 
-# Session 15 verification — the current record, and the closing certification
+# Session 15 verification — the last certification, on a configuration that no longer ships
+
+> ## ⚠ READ THIS BEFORE QUOTING THE CERTIFICATE BELOW
+>
+> **Session 16 shipped per-intent reasoning routing, and this certificate was run
+> before it.** It remains the last full pass anyone ran and every figure in it is
+> accurate for what it measured — but it is no longer a description of the
+> running system, and no certification pass describes the current one.
+>
+> **What changed.** The gateway's router now assigns a reasoning budget per
+> `(intent, role)` and the orchestrator spends it; every `answer_returned` row
+> states which budget answered. Only a dean can draw the expensive budget: kim's
+> moment 2, moment 5c, and moments 7 and 8 run with extended reasoning, and
+> everything else — every advisor, faculty and adjunct beat, the fail-open path,
+> and the bypass, which sends no flag at all — runs exactly as certified below.
+>
+> **What Session 16 measured on the new configuration** (`reports/session-16.md`
+> §4, rows 8965–9230, 33 requests):
+>
+> | | Certified here | Session 16, measured |
+> |---|---|---|
+> | Moment 5's tool-layer refusal | **FAILED** — 1 draw, no call | **5 of 5 runs** reached the server and relayed it |
+> | Step 7 intersection numerators | 0 of 1 wrong | **0 of 5 wrong** (Session 14, no reasoning: 3 of 5 wrong) |
+> | Step 2 ordinal claims | 0 of 1 wrong | **1 of 5 wrong** — the residual is NOT closed |
+> | Step 2 tool-stated values | all exact | **one run wrong** — DAT-MS given CYB-BS's 28 and 43 |
+> | Prompt cache | 0 zero-hit of 25 calls | 0 zero-hit of **66** calls |
+> | Step 2 median latency | — | **22.6s** (Session 14: 17.9s) |
+> | Step 7 median latency | — | **28.3s** (Session 14: 17.3s) |
+> | Step 8 latency | — | 30.4s and **62.3s** — one minute-long run, unmeasured spread |
+>
+> **For a presenter, three practical changes.** Moment 5 is measurably stronger
+> than the failure below suggests, so the fallback advice in RESIDUAL RISKS AND
+> PATTER is now insurance rather than an expectation. Steps 2, 7 and 8 are
+> noticeably slower and step 8 has run for a full minute once — do not narrate
+> into a silence you have not rehearsed. And the step-2 ordinal warning stands
+> unchanged: the values are the tools', the rankings are the model's.
 
 The last measurement of the build. One pass by the demo-verifier agent, **rows
 8552–8659**, 108 rows, 2026-08-10 02:09:29–02:18:16Z, driven through the

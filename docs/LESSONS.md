@@ -610,12 +610,24 @@ prompt-shaped fixes also achieved. A second run in the same five stated one
 programme's enrolment and missing count as another's — a wrong *tool-stated*
 figure, which reasoning is not supposed to leave on the table at all.
 
-**So the experiment failed its acceptance and was reverted**, by a fallback
-written before the measurement began. Session 15's certificate stands and the
-demonstration ships without reasoning routing. The code is kept on the branch
-`session-16-experiment` rather than discarded, for the same reason
-`docs/patches/` exists: what killed it is one number in one beat, and the design
-is the one the architecture document calls for.
+**The experiment failed its acceptance, the pre-authorized fallback reverted it,
+and it was then merged anyway on an explicit ruling** — that step 7 going to zero
+and moment 5 going to 5 of 5 outweigh an ordinal rate that five runs cannot
+distinguish from unchanged. Both halves of that are worth recording, because the
+process and the decision are separate things: the criterion was written before
+the measurement so the call could not be made by whoever was looking at the
+result, and it was then made deliberately, in the open, by someone who had read
+what failed. **The POC therefore ships with the router assigning reasoning
+budgets per intent — the architecture document's model-pool design, implemented —
+on a configuration no certification pass describes.** `DEMO_VERIFICATION.md` says
+so at the top of its current certificate.
+
+One design property that made the merge defensible and is worth copying: **only a
+dean can draw a reasoning budget in the shipped table.** There is no `True` cell
+for any advisor, faculty or adjunct pair, so the beats that depend on the model
+staying eager to call tools cannot be routed expensive by a misclassification.
+The protection is structural rather than a bet on the router picking the right
+category.
 
 **What the MVP should take from this.** Route the budget per intent — it is a
 small table, it costs nothing to read, and it makes the Session 11 trade

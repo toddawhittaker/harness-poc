@@ -2,8 +2,13 @@
 
 A bounded experiment with a pre-authorized fallback: per-intent reasoning
 routing. It was built, it was measured, **it failed one of its acceptance
-criteria, and the fallback fired.** The code is reverted on `main`, Session 15's
-certificate stands unchanged, and the demonstration ships on it.
+criteria, the fallback reverted it — and it was then merged, on your explicit
+ruling that step 7 and moment 5 justify it.**
+
+**So the POC ships with per-intent reasoning routing, on a configuration no
+certification pass describes.** Read §11 before §6: the fallback in §6 was
+executed as written and then deliberately overturned, and both halves are part of
+the record.
 
 This report stands alone. It quotes the commands run and their output, because
 the person reading it has no access to the terminal it was written from.
@@ -33,12 +38,14 @@ code, the stack brought back up, `pytest` green at 141, one spot-check beat
 confirming the reverted behaviour. **Nothing was fixed after measurement began
 and no beat was re-run.**
 
-**The experiment is preserved rather than thrown away**, on the branch
-`session-16-experiment` (commit `8724ee2`), the same judgement `docs/patches/`
-records for Session 11. `docs/LESSONS.md` entry 9 carries the measured
-before-and-after, as the brief required either way.
+**The experiment was preserved rather than thrown away**, on the branch
+`session-16-experiment` (commit `8724ee2`) — and you then ruled that step 7 and
+moment 5 justify shipping it, so that branch is merged into `main` at `e4a7196`.
+`docs/LESSONS.md` entry 9 carries the measured before-and-after, as the brief
+required either way, and `DEMO_VERIFICATION.md` now opens with a warning that its
+certificate predates what runs.
 
-**`main` carries one document and this file. Suite green at 141.**
+**`main` carries the routing, three documents and this file. Suite green at 162.**
 
 ---
 
@@ -53,6 +60,7 @@ before-and-after, as the brief required either way.
 | 5 — measure: cache, then residuals, then protected beats, then latency | **MEASURED. The step-2 residual criterion FAILED.** §4 |
 | 6 — one certification pass, LESSONS + DEMO_VERIFICATION + the commit | **NOT RUN / NOT DONE.** Conditioned on item 5 holding. §5 |
 | FALLBACK — revert, restore, confirm, report | **EXECUTED.** §6 |
+| — after the report, on your ruling: merge the experiment | **DONE.** `main` ships the routing. §11 |
 | Rule — nothing outside the permitted paths; nothing fixed after measurement; no re-runs | **HELD.** §8 |
 
 Session start: `SESSION_REPORT.md` (Session 15's) was moved to
@@ -102,9 +110,10 @@ beat.
 
 ## 2. What was built
 
-The whole diff is on branch **`session-16-experiment`**, commit **`8724ee2`**,
-four files, 181 lines of diff plus a 300-line test file. `git diff main
-session-16-experiment` shows it in full. Summary:
+Built on branch **`session-16-experiment`**, commit **`8724ee2`**, four files.
+Reverted on `main` by the fallback (§6) and then merged back at **`e4a7196`** on
+your ruling (§11), so it is on `main` today. `git diff dfe07b8 -- services/ libs/
+tests/` — Session 15's code against now — shows it in full. Summary:
 
 ### 2.1 `libs/harness_models` — the override
 
@@ -498,21 +507,24 @@ after the fact, which is the one thing the rules forbid.
 
 ## 8. Evidence — the diff, and what was never touched
 
-`main`'s diff after the fallback is one document plus this file:
+`main`'s code diff against Session 15 — after the fallback reverted it and the
+merge in §11 restored it — is exactly the four permitted files and nothing else:
 
 ```
-$ git status --porcelain
- M docs/LESSONS.md
-?? SESSION_REPORT.md
-
-$ git diff --stat
- docs/LESSONS.md | 55 +++++++++++++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 55 insertions(+)
+$ git diff dfe07b8 --stat -- services/ libs/ tests/ config/ apps/ scripts/
+ libs/harness_models/src/harness_models/factory.py |  18 +-
+ services/gateway/app.py                           |  60 +++-
+ services/orchestrator/app.py                      |  21 +-
+ tests/test_reasoning_routing.py                   | 340 ++++++++++++++++++++++
+ 4 files changed, 433 insertions(+), 6 deletions(-)
 ```
 
-`DEMO_VERIFICATION.md` is **not** in that list, and that is deliberate: item 6
-never became due, so Session 15's certificate stands in it untouched and
-unamended.
+`config/`, `apps/` and `scripts/` produce no output there, which is the check
+rather than the claim. The document diff is `docs/LESSONS.md`,
+`DEMO_VERIFICATION.md` and this file.
+
+**`DEMO_VERIFICATION.md` gained no certificate** — item 6 never became due and
+none was earned. What it gained is the warning block described in §9.
 
 The experiment's own diff, on the branch, touched exactly four paths, all
 permitted: `libs/harness_models/src/harness_models/factory.py`,
@@ -582,17 +594,29 @@ them. `ask.py` posts to the gateway with a real persona token and sends an empty
 
 ---
 
-## 9. The document that did change
+## 9. The documents
 
 **`docs/LESSONS.md` entry 9** gains a closing subsection, as the brief required
-regardless of outcome. It records: that the per-workload routing this entry had
-recommended for five sessions was finally built; that it costs nothing in prompt
-cache and that moment 5 survived it 5 of 5; the measured before-and-after on both
-residual classes side by side (intersections 3-of-5 wrong → 0 of 5; ordinals
-2-of-5 wrong → 1 of 5); that it failed its acceptance and was reverted, with the
-branch named; and the advice that falls out — route the budget per intent,
-expect it to close set-intersection arithmetic and expect it not to close ordinal
-claims, and split the intents so the table needs no role key.
+regardless of outcome: that the per-workload routing this entry had recommended
+for five sessions was finally built; that it costs nothing in prompt cache and
+that moment 5 survived it 5 of 5; the measured before-and-after on both residual
+classes side by side (intersections 3-of-5 wrong → 0 of 5; ordinals 2-of-5 wrong
+→ 1 of 5); that it failed its acceptance, was reverted by the fallback, **and was
+then merged on an explicit ruling** — with both halves recorded, because the
+process and the decision are separate things; the design property that made the
+merge defensible (no `True` cell for any non-dean role, so the protected beats
+cannot be routed expensive by a misclassification); and the advice that falls out
+— route the budget per intent, expect it to close set-intersection arithmetic and
+expect it not to close ordinal claims, and split the intents so the table needs
+no role key.
+
+**`DEMO_VERIFICATION.md`** gains no certificate — none was earned, item 6 never
+ran. What it gains is a warning block at the head of the Session 15 section
+saying that certificate predates what ships, naming exactly what changed, and
+tabling Session 16's measurements against it beat by beat. Three practical notes
+for a presenter: moment 5 is measurably stronger than the certified failure
+suggests, steps 2, 7 and 8 are noticeably slower with one 62-second run on
+record, and the step-2 ordinal warning is unchanged.
 
 ---
 
@@ -606,27 +630,89 @@ claims, and split the intents so the table needs no role key.
    presenter section already takes: the values are the tools', the rankings are
    the model's, and the table beside the claim is exact.
 
-2. **Was one bad draw allowed to sink a working mechanism?** Reasonable people
-   could disagree, and the report should say so plainly rather than hide it.
-   Everything except one clause of one criterion passed, and two of the passes —
-   step 7 going to zero, moment 5 going to 5 of 5 — are the best results either
-   beat has ever produced. But the criterion was written before the measurement
-   precisely so that this decision would not be mine to make afterwards, and
-   run 2's "28 of 43" is a wrong tool-stated figure, which is a worse finding
-   than the ordinal it accompanied. The fallback was right to fire. **If you want
-   the experiment reconsidered, the branch is one `git merge` away and the
-   evidence for and against is all in §4.**
+2. **The shipping configuration is uncertified, and that is now the largest open
+   item in the build.** §11 states it fully. Session 14 raised this exact
+   question about its two fields and it was answered by running Session 15; the
+   equivalent answer here is one demo-verifier pass under Session 15's three-tier
+   rubric. It is one short session's work and nothing else in the build is
+   waiting on anything.
 
-3. **Step 8 took 62 seconds once.** Under reasoning, on the beat that closes the
-   synthesis story. Nobody has measured its spread, and a demo beat with an
-   unmeasured minute-long tail is a risk worth knowing about before it is ever
-   routed to reasoning again.
+3. **Step 8 took 62 seconds once**, under reasoning, on the beat that closes the
+   synthesis story — against 30 seconds on the other run of the same pair. Two
+   runs establish no spread. If any measurement is run before the demonstration,
+   this is the cheapest one worth having: a demo beat with an unmeasured
+   minute-long tail is a pacing risk a presenter cannot plan around.
 
 4. **The router taxonomy is the real constraint.** Four categories cannot express
    which beats deserve a budget, which is why the table needed a role key at all.
    That was worked around here; in an MVP it should be fixed at the source, and
    entry 9 now says so.
 
-5. **Everything is committed.** `main` carries the archive move `8f6dd51` and the
-   commit following this report; the experiment is on `session-16-experiment` at
-   `8724ee2`. Nothing is left uncommitted and nothing else was reverted.
+5. **Everything is committed.** `main` carries the archive move `8f6dd51`, the
+   fallback commit `c656319`, the merge `e4a7196`, and the commit following this
+   report. The experiment's own commit is `8724ee2`, now an ancestor of `main`.
+   Nothing is left uncommitted.
+
+---
+
+## 11. The merge, and what it changed about the deliverable
+
+After this report's first version, you ruled: *"merge session-16-experiment —
+step 7 and moment 5 justify it."* I raised the concern in §10 and you reaffirmed
+it, so the merge was made in full. This section records what that decision means,
+because a reader of §6 alone would come away with the opposite impression.
+
+**What was done.** `git merge --no-ff session-16-experiment` into `main` at
+**`e4a7196`**; `docker compose up -d` and the gateway and orchestrator restarted
+so the running stack is the merged code; the suite re-run.
+
+```
+$ uv run pytest tests/ -q
+162 passed in 60.83s
+
+$ docker compose logs --since 30m 2>&1 | grep "dropped" || echo "clean"
+clean
+```
+
+**Two beats re-checked on the merged stack — rows 9490–9510, 03:51:19–03:51:56Z:**
+
+```
+9490 router  noor  intent=advisee_detail    hit=896
+9496 answer  noor  reasoning=False  lat=7109.9   tools=[get_my_sections, get_section_engagement]
+9497 router  noor  intent=program_aggregate hit=896
+9498 tool_call mcp-canvas get_section_engagement decision=refused
+9500 answer  noor  reasoning=False  lat=4828.5   tools=[get_section_engagement]
+9502 router  kim   intent=labor_market      hit=896
+9510 answer  kim   reasoning=True   lat=21924.8  hit=10624  tools=[list_programs_catalog, list_occupations, get_course_outcomes]
+```
+
+Moment 5 runs cheap and its refusal fires; step 7 runs with the budget; the cache
+hits throughout.
+
+**One robustness property worth knowing, which the re-check happened to
+demonstrate.** Row 9490 shows noor's first turn classified `advisee_detail` this
+time, not `program_aggregate` as it was in every earlier run. It made no
+difference, and it cannot: **the shipped table has no `True` cell for any
+advisor, faculty or adjunct pair, so only a dean can ever draw the expensive
+budget.** Every protected beat is protected structurally rather than by the
+router picking the category the table expects. That was not designed in — it
+falls out of "every `True` cell is a dean synthesis beat" — but it is the reason
+a misclassification cannot cost moment 5 its refusal.
+
+**What the deliverable now is, stated plainly.** The demonstration ships on a
+configuration that **no certification pass describes.** Session 15's certificate
+is the last full pass and it was run before this change; `DEMO_VERIFICATION.md`
+now opens with that warning and tables what Session 16 measured beside it. The
+evidence for the merged configuration is this session's §4 — 33 requests across
+nine labelled windows, which is more runs on more beats than any single
+certification has ever done, but it is not a certification: it did not score
+steps 3a, 4, 9 or 10, it did not run the amber check or the plain-language beat,
+and it was scored by me rather than by the verifier agent.
+
+**The honest summary for whoever presents this:** three of the four demo claims
+are untouched by the merge and were re-proven this session (the bypass twice, the
+faculty/dean asymmetry five times, every receipt on the record). What changed is
+synthesis quality, which improved and is measured, and pacing, which got worse
+and is measured. The one defect the merge does not fix is the step-2 ordinal, and
+the patter for it was already written in Session 15 and still applies word for
+word.
