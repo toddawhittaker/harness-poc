@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Executive Insights">
+  <title>Executive Insights</title>
+  <!-- One harness above many governed sources. -->
+  <rect x="3" y="5.5" width="26" height="6.5" rx="3.25" fill="hsl(222, 72%, 44%)"/>
+  <g fill="hsl(222, 72%, 44%)" opacity="0.42">
+    <rect x="3"    y="19" width="7" height="7" rx="1.75"/>
+    <rect x="12.5" y="19" width="7" height="7" rx="1.75"/>
+    <rect x="22"   y="19" width="7" height="7" rx="1.75"/>
+  </g>
+</svg>

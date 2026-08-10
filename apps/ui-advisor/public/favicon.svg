@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Advisor Workspace">
+  <title>Advisor Workspace</title>
+  <!-- One harness above many governed sources. -->
+  <rect x="3" y="5.5" width="26" height="6.5" rx="3.25" fill="hsl(20, 84%, 42%)"/>
+  <g fill="hsl(20, 84%, 42%)" opacity="0.42">
+    <rect x="3"    y="19" width="7" height="7" rx="1.75"/>
+    <rect x="12.5" y="19" width="7" height="7" rx="1.75"/>
+    <rect x="22"   y="19" width="7" height="7" rx="1.75"/>
+  </g>
+</svg>

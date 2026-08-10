@@ -36,3 +36,13 @@
 .message-content td {
   padding: 0.375rem 0.625rem;
 }
+
+/* Chainlit's "Built with Chainlit" footer. Hidden rather than restyled: the
+ * room is being told this is the university's own harness, and a third-party
+ * badge under every answer argues with that. The element carries an inline
+ * display:flex, so !important is required to beat it. Identity is carried
+ * instead by public/logo_{light,dark}.svg and public/favicon.svg, whose mark is
+ * one bar over four blocks — one harness above four governed sources. */
+.watermark {
+  display: none !important;
+}
