@@ -85,8 +85,8 @@ The audit viewer starts empty, deliberately — in a live demonstration the room
 should watch its own rows arrive. If you want to look at a real set first,
 `data/audit-sample.db` is a frozen 105-row extract of the closing certification
 run (audit ids 9770–9874), which
-[`DEMO_VERIFICATION.md`](DEMO_VERIFICATION.md) documents beat by beat with a row
-map. On a fresh clone:
+[`docs/DEMO_VERIFICATION.md`](docs/DEMO_VERIFICATION.md) documents beat by beat
+with a row map. On a fresh clone:
 
 ```bash
 cp data/audit-sample.db data/audit.db     # only before the first start
@@ -201,10 +201,9 @@ server on an identical call.
 |---|---|
 | [`SPEC.md`](SPEC.md) | The build specification, including the demo script (§7) and the honest shortcuts (§11) |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The production design this is a miniature of |
-| [`DEMO_VERIFICATION.md`](DEMO_VERIFICATION.md) | Every certification pass, newest first. The current one is Session 17 |
+| [`docs/DEMO_VERIFICATION.md`](docs/DEMO_VERIFICATION.md) | Every certification pass, newest first. The current one is Session 17 |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | Thirteen things the build taught us, each with the measurement behind it |
-| [`reports/`](reports/) | Session-by-session build reports, with the commands run and their output |
-| [`SESSION_REPORT.md`](SESSION_REPORT.md) | The most recent session's report, before it is archived into `reports/` |
+| [`reports/`](reports/) | Session-by-session build reports, Sessions 2 to 17, with the commands run and their output |
 
 `docs/LESSONS.md` is the most portable part of this repository. It is what
 seventeen sessions of measuring the same defects produced, and the strongest

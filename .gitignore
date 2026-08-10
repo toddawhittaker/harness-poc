@@ -17,9 +17,10 @@ data/*
 !data/labor.db
 
 # data/audit-sample.db IS committed: 105 rows, 36 KB, a frozen copy of the
-# Session 17 certification window (audit ids 9770-9874) that DEMO_VERIFICATION.md
-# documents beat by beat. It is a read-only artifact at a path nothing writes to,
-# so it never churns. See the README for how to view it.
+# Session 17 certification window (audit ids 9770-9874) that
+# docs/DEMO_VERIFICATION.md documents beat by beat. It is a read-only artifact
+# at a path nothing writes to, so it never churns. See the README for how to
+# view it.
 !data/audit-sample.db
 
 # data/jwt_private.pem is NEVER committed. It is the RSA-2048 key identity-stub

@@ -49,5 +49,12 @@ orchestrator). Never add them to the gateway or UIs.
 messages after the prefix (DeepSeek prefix caching).
 - Python 3.12, uv, type hints everywhere, Pydantic models for every payload.
 - Small files, no cleverness. This is a demo that must be readable on a projector.
-- At session start, before any other work: if `SESSION_REPORT.md` exists, move  it to reports/session-&lt;n&gt;.md (next unused n) and commit that move by  itself. Then, at every plan-approval pause, stop-point question, and  session end, write your full report to `SESSION_REPORT.md` (overwrite, never  append): what was done, any deviations and why, acceptance status per  criterion, open questions. Then halt. The report must stand alone — it  will be reviewed by someone with no access to this terminal, so include  the evidence (commands run, outputs, counts), not just conclusions.
+- The build is complete and certified; there is no `SESSION_REPORT.md` at the
+  root and no archive step at session start any more. Session reports live in
+  `reports/session-<n>.md`, one per session, Sessions 2 to 17. If further work
+  ever warrants a report, write it straight to the next unused
+  `reports/session-<n>.md`: what was done, any deviations and why, acceptance
+  status per criterion, open questions. It must stand alone — assume the reader
+  has no access to this terminal, so include the evidence (commands run,
+  outputs, counts), not just conclusions.
 

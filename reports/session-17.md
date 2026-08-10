@@ -803,3 +803,48 @@ seed.py and demo_bypass.sh: byte-identical to the certified versions
 $ git diff HEAD --exit-code --stat services/ libs/ tests/ config/ apps/
 UNCHANGED: services, libs, tests, config, apps
 ```
+
+### 12.8 Final layout: this report and the certificate moved
+
+The seed databases ship, on the owner's decision. The `.sql`-dump alternative did
+not survive measurement: a full `seed.py` re-run costs about 670 bytes of packed
+history as `.db` against about 665 bytes as `.sql`, because git delta-compresses
+regenerated SQLite perfectly well when the generator is deterministic. An earlier
+claim in this session that SQLite binaries delta poorly was wrong and is
+corrected here.
+
+Two documents then moved out of the repository root, which now holds only entry
+points — `README.md`, `SPEC.md`, `ARCHITECTURE.md`, `CLAUDE.md`, `LICENSE` and
+the build files:
+
+| Was | Now | Why |
+|---|---|---|
+| `SESSION_REPORT.md` | `reports/session-17.md` | The build is finished, so there is no next session to archive it. It joins Sessions 2 to 16 |
+| `DEMO_VERIFICATION.md` | `docs/DEMO_VERIFICATION.md` | It belongs beside `docs/LESSONS.md`, the other standing record. `reports/` holds per-session snapshots; these two are living documents |
+
+`CLAUDE.md`'s session-report rule was rewritten to match: the
+archive-on-session-start step is gone, and any future report is written straight
+to the next unused `reports/session-<n>.md`.
+
+**References were updated in the live documents only** — `README.md`, `CLAUDE.md`
+and `.gitignore`. Three categories were deliberately left alone:
+
+- **`docs/LESSONS.md`'s five mentions needed no change**, and are now more
+  correct than before: they are bare `DEMO_VERIFICATION.md` code spans, and the
+  two files now sit in the same directory.
+- **The archived reports were not rewritten.** Sessions 2 to 16 name these files
+  at their then-current paths, which is what those documents recorded at the
+  time. Editing sixteen historical reports to fix a path would make them a worse
+  record, not a better one, and git preserves the rename regardless.
+- **Six mentions in `tests/` and `config/skills.yaml` were left untouched**, both
+  because those paths are frozen before the demonstration and because every one
+  is prose in a comment or docstring — a bare filename that nothing opens or
+  resolves. No code is affected, and `git grep DEMO_VERIFICATION` still finds the
+  file wherever it lives.
+
+**No tracked cache directories were found.** The concern that `__pycache__` might
+have been committed was checked and is unfounded: `git ls-files` matches nothing
+against `__pycache__`, `*.pyc`, `.pytest_cache`, `.egg-info`, `.venv`,
+`.DS_Store`, or Chainlit's `.files/` and `.chainlit/translations/`. The
+`.gitignore` has covered them since the root commit, so the directories exist on
+disk and have never been tracked.
