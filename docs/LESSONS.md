@@ -574,6 +574,61 @@ person standing in front of the room which numbers on the screen are the tools'
 and which are the model's. **The last option is not a failure. An unmeasured
 residual is the failure.**
 
+### Session 16: the second option, built and measured — and it bought one class, not both
+
+The middle option above stayed advice for five sessions because the only switch
+available was global, and Session 11 had shown what a global switch costs. So
+Session 16 built the per-workload version this entry recommends: the gateway's
+router assigns a reasoning budget per question from a table, and the orchestrator
+spends what it is given. `agent_model(reasoning: bool | None)` takes the override,
+the flag rides to the orchestrator beside the message, and every `answer_returned`
+row states which budget answered.
+
+**The routing worked, and the two things people expect it to break did not
+break.** Across 33 requests and 66 model calls: every row carried the budget its
+intent and role called for, **zero calls hit a cold prompt cache** (minimum 896
+hit tokens, so per-request `thinking` settings do not disturb DeepSeek's prefix
+cache), and the beat that a global reasoning flag destroys was untouched. Demo
+moment 5's second turn reached the tool server and relayed the spec-fixed refusal
+in **5 of 5 runs**, against roughly half of ten under Session 11's global flag —
+because that beat was routed cheap on purpose. Both of Session 11's costs were
+avoidable and the mechanism for avoiding them is a table.
+
+**What it bought, and what it did not.** Reasoning went to the two synthesis
+beats. Measured against the same beats in Session 14 without it:
+
+| Residual | Session 14, no reasoning | Session 16, reasoning on that beat |
+|---|---|---|
+| Cross-server intersection numerators (step 7) | wrong in **3 of 5** runs | **0 of 5** — 40+ tallies, every one exact |
+| Ordinal claims about a tool-stated value (step 2) | wrong in **2 of 5** runs | **1 of 5** — "the best rate on that one measure" about the second-best |
+
+The intersection class went to zero and stayed there: five runs, every numerator
+consistent with its own covered list, every denominator equal to `skill_count`.
+The ordinal class did not. One run in five still misread a ranking of six values
+it had printed correctly in the same reply, which is what four sessions of
+prompt-shaped fixes also achieved. A second run in the same five stated one
+programme's enrolment and missing count as another's — a wrong *tool-stated*
+figure, which reasoning is not supposed to leave on the table at all.
+
+**So the experiment failed its acceptance and was reverted**, by a fallback
+written before the measurement began. Session 15's certificate stands and the
+demonstration ships without reasoning routing. The code is kept on the branch
+`session-16-experiment` rather than discarded, for the same reason
+`docs/patches/` exists: what killed it is one number in one beat, and the design
+is the one the architecture document calls for.
+
+**What the MVP should take from this.** Route the budget per intent — it is a
+small table, it costs nothing to read, and it makes the Session 11 trade
+disappear as a trade. Expect it to close set-intersection arithmetic and expect
+it *not* to close ordinal claims: a rank is not arithmetic, and thinking longer
+about six values does not make a model reliably order them. Ranks belong in the
+payload or in the presenter's patter. And note the shape of the key: Session 16
+had to route on `(intent, role)` because a four-category router cannot tell
+kim's programme question from dana's advisee question, or noor's section question
+from kim's rollup. **That is a taxonomy defect, not a design.** An MVP splits the
+intents — `section_engagement` from `program_rollup`, curriculum synthesis from a
+labour-market lookup — and budgets by intent alone, with no role in the table.
+
 ---
 
 ## 10. Seed data is casting, and invariants beat aesthetics
