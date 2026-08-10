@@ -27,15 +27,30 @@ means demo moment 9's audit page will be missing rows; the line names the
 service and the URL that failed. Drops are debounced to once a minute per
 process, so one line can stand for several lost events.
 
-## Deploy (LXC, tunnel profile)
+## Deploy
 
-git pull && docker compose --profile tunnel up -d
+**Nothing is published, and that is now the decision rather than a gap.** The
+original plan put the two surfaces behind a Cloudflare tunnel; the owner has
+ruled that out. Exposing it publicly would mean locking it down first — real
+cookie secrets, a considered stance on who can reach a demo that answers
+questions about student records — and the demonstration does not need it.
+Anyone who wants to see it running asks him and he shows them.
 
-Set real values for CHAINLIT_AUTH_SECRET_ADVISOR and CHAINLIT_AUTH_SECRET_EXEC
-in .env on the LXC. The built-in defaults are fine on localhost and nowhere
-else: they sign each Chainlit app's session cookie, and a public tunnel plus a
-published cookie secret is a forgeable login. They have no bearing on the
-harness JWTs, which identity-stub signs with RS256.
+So this runs on localhost:
+
+    docker compose up -d
+
+The tunnel profile still works and is still wired (`docker compose --profile
+tunnel up -d`, ingress in `tunnel/config.yml`). If it is ever used, two things
+must happen first, and the first is not optional:
+
+- Set real values for `CHAINLIT_AUTH_SECRET_ADVISOR` and
+  `CHAINLIT_AUTH_SECRET_EXEC` in `.env`. The fallbacks in `docker-compose.yml`
+  are published in a public repository, and a public tunnel plus a known cookie
+  secret is a forgeable login. They sign each Chainlit app's session cookie only
+  and have no bearing on the harness JWTs, which identity-stub signs with RS256.
+- Set `TUNNEL_TOKEN`. Empty, `cloudflared` restarts forever on a message that
+  never mentions the token, while the other nine services stay healthy.
 
 ## Working discipline
 
@@ -45,6 +60,20 @@ harness JWTs, which identity-stub signs with RS256.
   commit and stop, not commit and push. A green CI run, a trivial diff, an
   obvious next step and a previous instruction three messages ago are all *not*
   permission.
+- **Each word means a fixed sequence. Do that sequence, then stop.**
+
+  | Word | What it means |
+  |---|---|
+  | **commit** | Commit. Nothing else. It does not authorise a push. |
+  | **push** | Push the branch **and open a PR**. Not a bare `git push`. |
+  | **merge** | Merge the PR **and then delete the branch, locally and on the remote**. Cleanup is part of the word, not a follow-up question. |
+
+  Two things the table does not cover, so they are written out. Deleting a
+  branch is safe when its commits are reachable from `main` — check with
+  `git merge-base --is-ancestor <branch> main` before deleting, and say so.
+  And a branch kept deliberately as a record rather than as work in progress
+  is still the human's to prune; do not delete it silently because it is
+  merged.
   - Default behaviour: make the change, leave it **unstaged** in the working
     tree, and report what changed and what you verified. Leaving it unstaged
     matters — `git diff` should show the human their own change, not a staged
@@ -62,10 +91,15 @@ harness JWTs, which identity-stub signs with RS256.
   every time, even when CI is green and the change looks trivial.
 - **CI must be green before asking.** `ruff check`, gitleaks, the repo checks and
   `docker compose build` all run on every push (`.github/workflows/ci.yml`) and
-  need no secrets. The 162-test suite needs a live stack and a paid key, so it
-  is manual — `gh workflow run "Full suite (live stack)"` — and its result
-  belongs in the PR description when the change touches `services/`, `libs/` or
-  `config/`.
+  need no secrets.
+- **The 162-test suite runs locally, not in CI.** `.github/workflows/suite.yml`
+  exists and works, but it needs `DEEPSEEK_API_KEY` as a repository secret and
+  **the owner has deliberately not set one** — the key stays on his machine and
+  the suite is run there with `uv run pytest tests/ -q` against the live stack.
+  The workflow is kept as a working reference for anyone who forks this and
+  wants it in CI; do not expect it to have ever run green here, and do not add
+  the secret. When a change touches `services/`, `libs/` or `config/`, put the
+  local run's output in the PR description instead.
 - **The lint rule set only grows when the tree is already green for it.** Rules
   and the reason each deferred one is deferred are in `pyproject.toml`
   `[tool.ruff.lint]`. Do not add a rule and a mass reformat in the same change.

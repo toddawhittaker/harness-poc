@@ -1,10 +1,16 @@
 name: Full suite (live stack)
 
 # The 162-test suite talks to a running ten-container stack and every answer
-# costs DeepSeek credit, so this is manual — or scheduled, if someone turns the
-# cron on. It is the only workflow that needs a secret.
+# costs DeepSeek credit, so this is manual. It is the only workflow needing a
+# secret:
 #
 #   gh secret set DEEPSEEK_API_KEY --repo <owner>/<repo>
+#
+# THIS HAS NEVER RUN ON THIS REPOSITORY, ON PURPOSE. The owner keeps his model
+# key on his own machine and runs the suite there — `uv run pytest tests/ -q`
+# against a live stack — rather than putting a paid credential into GitHub. The
+# workflow is kept because it works and because a fork may want CI to run it;
+# it is not a capability that has silently rotted. See CLAUDE.md.
 #
 # tests/conftest.py points every fixture at localhost:8000/8001, which is why
 # this cannot be folded into ci.yml as a plain unit-test job.
