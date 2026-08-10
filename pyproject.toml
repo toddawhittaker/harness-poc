@@ -23,6 +23,30 @@ package = false
 [tool.uv.workspace]
 members = ["libs/*", "services/*", "apps/*"]
 
+[tool.ruff]
+# 100 rather than 88: this codebase carries long explanatory docstrings on the
+# MCP tools, and the longest single line in the repo is 619 characters — a tool
+# docstring the model reads. E501 is deliberately NOT selected below for that
+# reason; the line length here governs `ruff format` if it is ever run.
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Enforced in CI, and green on the whole tree as of Session 17 with no code
+# changes: F is pyflakes — undefined names, unused imports, real defects — and
+# E9 is syntax and IO errors. These catch bugs, not taste.
+#
+# NOT enforced yet, and each for a stated reason rather than an oversight:
+#   I    import sorting — 14 findings, all auto-fixable, but the fix touches
+#        files the Session 17 certification describes. Apply it after the
+#        demonstration, in one mechanical commit, then add "I" here.
+#   E501 line length — see above; the tool docstrings are deliberate.
+#   BLE001, S608 and friends — the tree already carries 15 hand-written
+#        `# noqa` comments with reasons, from an earlier pass. Turning the rules
+#        on means auditing those 15 first.
+# The rule is simply that this list only grows once the tree is green for it.
+select = ["F", "E9"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # The session2 tests were written ahead of the code they cover (the

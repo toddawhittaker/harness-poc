@@ -1,0 +1,82 @@
+name: CI
+
+# Everything here runs without secrets and without calling a model, so it is
+# safe on every push and every pull request from anywhere. The 162-test suite
+# needs a live ten-container stack and a paid DeepSeek key, so it lives in
+# suite.yml behind a manual trigger rather than burning credit on every commit.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: ruff check
+        # Rules and the reason for each deferral are in pyproject.toml
+        # [tool.ruff.lint]. That list only grows once the tree is green for it.
+        run: uv run --with ruff ruff check --no-cache --output-format github .
+
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks scans history, not just the tip
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # No allowlist, deliberately. `.env` and `data/jwt_private.pem` exist on
+        # a developer machine and are gitignored; allowlisting them here would
+        # disable the one check that catches them being committed by accident.
+
+  checks:
+    name: repo checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Every compose variable is documented in .env.example
+        run: python .github/scripts/check_config_parity.py
+      - name: Every relative Markdown link resolves
+        run: python .github/scripts/check_links.py
+      - name: seed.py still reproduces the committed databases
+        # Stdlib only and no stack required: it re-seeds into a temporary
+        # directory and compares every table logically. data/*.db are committed
+        # AND generated, so this is what stops the two drifting apart.
+        run: python scripts/verify_seed.py
+      - name: These workflows are themselves valid
+        run: |
+          curl -sL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz \
+            | tar xz actionlint
+          ./actionlint -color
+
+  build:
+    name: docker compose build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build all ten images
+        # A dummy key only to satisfy compose's ${DEEPSEEK_API_KEY:?} guard at
+        # parse time. Nothing here calls a model; the build never sees a real
+        # credential. This is what catches a broken Dockerfile or a uv.lock that
+        # no longer resolves for some workspace member.
+        env:
+          DEEPSEEK_API_KEY: ci-build-only-never-used
+        run: docker compose build

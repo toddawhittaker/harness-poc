@@ -210,21 +210,53 @@ server.
 The token is passed through at every hop, and every service validates it
 independently rather than trusting the one before it.
 
+```mermaid
+flowchart LR
+    subgraph surfaces["Surfaces — hold no logic and no roles"]
+        A["Advisor Workspace<br/>:8080"]
+        E["Executive Insights<br/>:8081"]
+    end
+
+    G["<b>gateway</b> :8000<br/>verify_token<br/>router triage, not a judge<br/><i>fails open on a parse error</i>"]
+    O["<b>orchestrator</b> :8010<br/>verify_token<br/>registry filtering hides tools<br/><i>defence in depth, not the boundary</i>"]
+
+    subgraph tools["Governed tool servers — verify_token, then DECIDE"]
+        C["mcp-colleague :8021"]
+        L["mcp-labor :8022"]
+        N["mcp-canvas :8023"]
+        K["mcp-kuali :8024"]
+    end
+
+    D[("audit :8030<br/>every question,<br/>every refusal")]
+
+    A -- "Bearer" --> G
+    E -- "Bearer" --> G
+    G -- "Bearer" --> O
+    O -- "Bearer" --> C
+    O -- "Bearer" --> L
+    O -- "Bearer" --> N
+    O -- "Bearer" --> K
+
+    G -.-> D
+    O -.-> D
+    C -.-> D
+    L -.-> D
+    N -.-> D
+    K -.-> D
+
+    %% Every fill carries an explicit text colour: GitHub renders this diagram in
+    %% both its light and dark themes, and a fill without a colour inherits the
+    %% theme's foreground — light text on a light box for half the readers.
+    classDef enforce fill:#fde8e8,stroke:#b91c1c,stroke-width:2px,color:#111827
+    classDef plain fill:#eef2ff,stroke:#4f46e5,color:#111827
+    class C,L,N,K enforce
+    class A,E,G,O plain
+    style tools fill:#fff1f2,stroke:#b91c1c,stroke-dasharray:4 3,color:#7f1d1d
+    style surfaces fill:#f8fafc,stroke:#94a3b8,stroke-dasharray:4 3,color:#334155
 ```
-  Chainlit app          gateway              orchestrator            MCP servers
-  (:8080 / :8081)       (:8000)              (:8010)                 (:8021-8024)
-        |                  |                      |                       |
-        |  Bearer token    |    Bearer token      |     Bearer token      |
-        +----------------->+--------------------->+---------------------->+
-        |                  |                      |                       |
-        |             verify_token           verify_token            verify_token
-        |             router triage          registry filtering      ENFORCEMENT
-        |             (not a judge)          (hides tools)           (decides)
-        |                  |                      |                       |
-        +------------------+----------------------+-----------------------+
-                                     |
-                                  audit (:8030)
-```
+
+Every tool server carries `verify_token` and re-checks the caller's own token —
+they are drawn together because **that layer, and only that layer, decides.**
 
 **Authorization decisions live only in the MCP servers.** The gateway's router is
 triage — it classifies the question and refuses the obviously out-of-scope

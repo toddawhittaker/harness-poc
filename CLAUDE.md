@@ -37,6 +37,56 @@ else: they sign each Chainlit app's session cookie, and a public tunnel plus a
 published cookie secret is a forgeable login. They have no bearing on the
 harness JWTs, which identity-stub signs with RS256.
 
+## Working discipline
+
+- **`commit`, `push` and `merge` are the human's words, not yours.** Do not run
+  `git commit`, `git push`, `gh pr merge` or any merge unless the human says so
+  in that message. Asking for one does not authorise the next: "commit" means
+  commit and stop, not commit and push. A green CI run, a trivial diff, an
+  obvious next step and a previous instruction three messages ago are all *not*
+  permission.
+  - Default behaviour: make the change, leave it **unstaged** in the working
+    tree, and report what changed and what you verified. Leaving it unstaged
+    matters — `git diff` should show the human their own change, not a staged
+    one they have to go looking for.
+  - Session 17 got this wrong: fourteen commits in one day that were never
+    asked for. The work was fine and the presumption was not. Volume is the
+    tell — if you are about to commit for the third time without being asked,
+    you have stopped collaborating and started driving.
+- **Every change goes on a branch.** Never commit to `main` directly, including
+  documentation. Branch from `main`, name it for the work (`ci-discipline`,
+  `fix-enrollment-trend-order`). Creating a branch needs no permission; putting
+  commits on it does.
+- **Never merge without explicit confirmation.** Open the PR when asked to,
+  report what is in it and what CI said, and stop. Merging is the human's call
+  every time, even when CI is green and the change looks trivial.
+- **CI must be green before asking.** `ruff check`, gitleaks, the repo checks and
+  `docker compose build` all run on every push (`.github/workflows/ci.yml`) and
+  need no secrets. The 162-test suite needs a live stack and a paid key, so it
+  is manual — `gh workflow run "Full suite (live stack)"` — and its result
+  belongs in the PR description when the change touches `services/`, `libs/` or
+  `config/`.
+- **The lint rule set only grows when the tree is already green for it.** Rules
+  and the reason each deferred one is deferred are in `pyproject.toml`
+  `[tool.ruff.lint]`. Do not add a rule and a mass reformat in the same change.
+
+### One-time repository setup
+
+```bash
+gh secret set DEEPSEEK_API_KEY                 # only suite.yml needs it
+gh api -X PUT repos/{owner}/{repo}/branches/main/protection \
+  -f 'required_status_checks[strict]=true' \
+  -F 'required_status_checks[contexts][]=ruff' \
+  -F 'required_status_checks[contexts][]=gitleaks' \
+  -F 'required_status_checks[contexts][]=repo checks' \
+  -F 'required_status_checks[contexts][]=docker compose build' \
+  -F 'enforce_admins=true' -F 'required_pull_request_reviews[required_approving_review_count]=0' \
+  -F 'restrictions=null'
+```
+
+Branch protection is what makes "never merge without confirmation" a property of
+the repository rather than a promise. It cannot be set until the remote exists.
+
 ## Hard rules
 
 - Never weaken, mock, or bypass JWT validation — not in dev mode, not in tests,
