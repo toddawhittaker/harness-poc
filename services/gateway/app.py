@@ -78,6 +78,60 @@ FAIL_OPEN = RouterDecision(
     intent="unclassified", in_scope=True, plausibly_authorized=True, refusal_message=None
 )
 
+# The reasoning budget, one cell per (router category, role). CONFIGURATION,
+# not a model decision: the router names a category, this table says which
+# budget answers it, and the choice is reviewable here rather than argued
+# inside a prompt. It buys latency for accuracy on the questions whose answers
+# derive numbers no tool states (docs/LESSONS.md entry 9), and pays nothing on
+# the questions that are lookups or that depend on the model staying eager to
+# call a tool.
+#
+# THIS IS A BUDGET AND NOT AN ENTITLEMENT. It is keyed on role and it decides
+# nothing about who may see what: every cell below, flipped either way, returns
+# exactly the same data to exactly the same people, because authorization lives
+# in the MCP servers and nothing down there reads this flag. Every True cell is
+# a dean synthesis beat, which is the whole table in one sentence.
+#
+# Why role appears at all: the POC's router taxonomy has four categories and
+# the beats need six. kim's programme question and dana's advisee question both
+# come back `advisee_detail`; noor's section question and kim's rollup both come
+# back `program_aggregate`. The role separates them. An MVP splits the intents
+# instead — section_engagement from program_rollup, curriculum synthesis from a
+# labour-market lookup — and drops the role key entirely.
+#
+# `("labor_market", "dean")` rather than labor_market outright: pat's public
+# occupations question is a twelve-row lookup that has been clean and fast in
+# every certification, and taxing it fifteen seconds would buy nothing.
+# `("program_aggregate", "faculty")` is False on purpose and is the load-bearing
+# cell — noor's moment-5 turns are the beat Session 11 measured losing its
+# tool-layer refusal about half the time under reasoning.
+REASONING_BY_CATEGORY: dict[tuple[str, str], bool] = {
+    ("advisee_detail", "advisor"): False,   # dana, moments 1 and 6
+    ("advisee_detail", "dean"): True,       # kim, moment 2 — the synthesis shape
+    ("program_aggregate", "dean"): True,    # kim, moment 5c — the rollup
+    ("program_aggregate", "faculty"): False,  # noor, moment 5 — protected
+    ("labor_market", "dean"): True,         # kim, moments 7 and 8
+}
+
+# Everything not named above: `other`, an intent the router improvised, an
+# unlisted role, and the fail-open path, whose intent is `unclassified` and is
+# therefore absent from the table by construction. Fail open stays fail cheap.
+REASONING_DEFAULT = False
+
+
+def reasoning_for(intent: str, roles: list[str]) -> bool:
+    """Which reasoning budget answers this question.
+
+    A caller holding several roles gets the budget if ANY of their (category,
+    role) pairs asks for it. Generosity with a budget is harmless — the shape
+    worth protecting is a faculty-only caller on `program_aggregate`, and no
+    persona in the script is faculty-plus-anything. A caller with no roles at
+    all gets the default.
+    """
+    return any(
+        REASONING_BY_CATEGORY.get((intent, role), REASONING_DEFAULT) for role in roles
+    )
+
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
@@ -138,6 +192,7 @@ async def chat(
     started = time.perf_counter()
 
     # The router is a triage nurse, not a judge. Enforcement lives in the MCP servers. Do not add authorization logic here.
+    # The reasoning hint the triage assigns below is a spending decision, not a verdict: the enforcement beneath neither reads it nor trusts it.
     decision, routed = await triage(claims, request.message)
 
     refused = routed and (not decision.in_scope or not decision.plausibly_authorized)
@@ -154,6 +209,8 @@ async def chat(
         )
         return ChatReply(reply=reply, tools_used=[])
 
+    reasoning = reasoning_for(decision.intent, claims.roles)
+
     # The caller's own token travels on, unchanged. The gateway never mints a
     # token of its own and never calls downstream as itself.
     authorization = http_request.headers.get("authorization") or ""
@@ -162,7 +219,8 @@ async def chat(
             ORCHESTRATOR_URL,
             json={"message": request.message,
                   "history": [turn.model_dump() for turn in request.history],
-                  "active_skills": request.active_skills},
+                  "active_skills": request.active_skills,
+                  "reasoning": reasoning},
             headers={"Authorization": authorization},
         )
 
