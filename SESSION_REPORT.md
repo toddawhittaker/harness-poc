@@ -626,7 +626,8 @@ longer treated alike:
 | File | Size | Decision |
 |---|---|---|
 | `colleague.db`, `canvas.db`, `kuali.db`, `labor.db` | 240 KB total | **Committed.** Deterministic output of `scripts/seed.py` (`random.seed(398)`); committing them means a clone runs without a seed step |
-| `audit.db` | 1.9 MB, 9,866 rows | **Still ignored.** It is a runtime log rewritten on every request, the audit service creates it empty on boot with `CREATE TABLE IF NOT EXISTS`, and a SQLite binary that changes every demo run would dirty the tree constantly and store a full copy per commit — it would have roughly doubled a 2.2 MB repository in one commit |
+| `audit.db` | 1.9 MB, 9,866 rows | **Still ignored, and deliberately not trimmed** — §12.6. It is a runtime log rewritten on every request, the audit service creates it empty on boot with `CREATE TABLE IF NOT EXISTS`, and a SQLite binary that changes every demo run would dirty the tree constantly and store a full copy per commit |
+| `audit-sample.db` | 36 KB, 105 rows | **Committed.** A frozen extract of the Session 17 certification window (ids 9770–9874) at a path nothing writes to, so it never churns |
 | `jwt_private.pem` | RSA-2048, mode 0600 | **Never committed, and the rule is now written into `.gitignore` with its reason.** It is the key identity-stub signs every harness token with; publishing it would let anyone mint a valid token for any persona, which is the one claim this POC exists to make. `load_or_create_key()` regenerates it on first boot if absent, so nothing is lost by excluding it |
 
 The `.gitignore` rule is `data/*` rather than `data/`, because git does not
@@ -690,7 +691,58 @@ is a record Session 16 left deliberately.
    it into `reports/` at the next session start; if there is no next session, it
    should be moved to `reports/session-17.md` by hand so the root holds only
    entry points.
-3. **The audit trail is not published.** If a browsable set of receipts is wanted
-   without running the stack, the honest artifact is a text export of the
-   certification window (rows 9770–9874) under `docs/`, which diffs and reviews,
-   rather than the 1.9 MB live binary.
+3. *(Closed — see §12.6.)* The certification window now ships as
+   `data/audit-sample.db`.
+
+### 12.6 The audit trail: why a frozen extract rather than a trimmed live file
+
+The question was raised of cutting `data/audit.db` back to about a hundred rows
+in place, since the audit service regenerates it anyway. Two facts were
+established first, both by measurement rather than assumption:
+
+- **The viewer handles an empty database correctly** — `services/audit/viewer.html:269-272`
+  renders "No events yet." rather than failing — so shipping nothing was a real
+  option.
+- **A 105-row database is 36 KB after `VACUUM`.** `DELETE` alone leaves the file
+  at its original 1,941,504 bytes; SQLite does not shrink without the vacuum.
+  So the size objection to shipping a *small* audit database disappears
+  entirely.
+
+**The live file was still not trimmed, and this is the part worth recording.**
+Rows 4–9769 are the primary evidence for **every certificate in
+`DEMO_VERIFICATION.md`**, not only Session 17's: Session 15's rows 8552–8659,
+Session 13's, Session 12's, Session 11's two comparison passes at 6152–6272 and
+6401–6491, Session 9's, Session 8's and Session 7's. Deleting them would leave
+eight documented certification passes with no source to check their quoted rows
+against. That is the same objection as rewriting git history, one layer down: the
+reports are built to stand on evidence, and destroying the evidence to save 1.9 MB
+is a bad trade.
+
+**What ships instead** is `data/audit-sample.db` — built from a copy, never from
+the live file, which was opened read-only throughout:
+
+```
+data/audit-sample.db: 36864 bytes, 105 rows, ids 9770-9874
+schema matches source: True
+viewer query (SELECT * FROM events ORDER BY id DESC LIMIT 200) returns 105 rows
+Counter({'tool_call': 57, 'router_classified': 12, 'auth_failed': 12,
+         'request_completed': 11, 'answer_returned': 11,
+         'refused_at_gate': 1, 'skill_refused': 1})
+```
+
+That event distribution matches §5.3's independently computed window exactly,
+which is the check that the extract is the certification and not an arbitrary
+slice.
+
+**It is deliberately not committed at `data/audit.db`.** Two reasons. A tracked
+file at the live path is rewritten on every request, so the working tree would be
+dirty after every demo run, at any size. And a pre-populated audit page is the
+wrong artifact for demo moment 9, whose claim is *every question, every refusal,
+on the record* — the room should watch its own rows arrive, not read a canned
+set. The README documents a one-line `cp` for anyone who wants the certified pass
+in the viewer without running the stack.
+
+`AUDIT_DB_PATH` is a compose literal (`docker-compose.yml:365`) rather than an
+overridable variable, which is why the documented route is a copy rather than an
+environment override. Making it overridable is a one-line compose change and was
+not made, for the same reason as §12.5's item 1.

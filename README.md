@@ -79,6 +79,26 @@ password is `demo` for all five.
 | `pat` | Pat Reyes | adjunct — public data only |
 | `sam` | Sam Lindqvist | advisor **and** dean |
 
+### Seeing the receipts without running anything
+
+The audit viewer starts empty, deliberately — in a live demonstration the room
+should watch its own rows arrive. If you want to look at a real set first,
+`data/audit-sample.db` is a frozen 105-row extract of the closing certification
+run (audit ids 9770–9874), which
+[`DEMO_VERIFICATION.md`](DEMO_VERIFICATION.md) documents beat by beat with a row
+map. On a fresh clone:
+
+```bash
+cp data/audit-sample.db data/audit.db     # only before the first start
+docker compose up --build
+```
+
+The viewer then opens on the certified pass: eleven answers, twelve
+authentication failures from the probe matrix, one gate refusal, one skill
+refusal, and the amber tool-layer refusals from the bypass and the faculty
+boundary. The sample is never written to — the audit service writes
+`data/audit.db`, which stays untracked.
+
 To re-generate the fake data:
 
 ```bash
