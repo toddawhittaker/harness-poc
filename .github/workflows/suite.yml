@@ -1,0 +1,102 @@
+name: Full suite (live stack)
+
+# The 162-test suite talks to a running ten-container stack and every answer
+# costs DeepSeek credit, so this is manual — or scheduled, if someone turns the
+# cron on. It is the only workflow that needs a secret.
+#
+#   gh secret set DEEPSEEK_API_KEY --repo <owner>/<repo>
+#
+# tests/conftest.py points every fixture at localhost:8000/8001, which is why
+# this cannot be folded into ci.yml as a plain unit-test job.
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_logs:
+        description: "Upload container logs even when the suite passes"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    name: pytest against a live stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Refuse to start without the key, rather than failing obscurely later
+        run: |
+          if [ -z "${{ secrets.DEEPSEEK_API_KEY }}" ]; then
+            echo "::error::DEEPSEEK_API_KEY is not set on this repository."
+            echo "::error::Set it with: gh secret set DEEPSEEK_API_KEY"
+            exit 1
+          fi
+          echo "DEEPSEEK_API_KEY is present"
+
+      - name: Write .env
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          cp .env.example .env
+          # HOST_UID/HOST_GID must match whoever owns the checkout, or
+          # identity-stub cannot write data/jwt_private.pem and audit cannot
+          # open its database. The runner is not uid 1000. This is the exact
+          # failure the Session 17 LXC rehearsal hit.
+          {
+            echo "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}"
+            echo "HOST_UID=$(id -u)"
+            echo "HOST_GID=$(id -g)"
+            echo "CHAINLIT_AUTH_SECRET_ADVISOR=$(openssl rand -hex 32)"
+            echo "CHAINLIT_AUTH_SECRET_EXEC=$(openssl rand -hex 32)"
+          } >> .env
+
+      - name: Bring the stack up
+        run: docker compose up -d --build
+
+      - name: Wait for every service to report healthy
+        run: |
+          for i in $(seq 1 60); do
+            unhealthy=$(docker compose ps --format '{{.Service}} {{.Status}}' \
+                        | grep -vc 'healthy' || true)
+            if [ "$unhealthy" -eq 0 ]; then
+              echo "all services healthy after ${i}0s"
+              docker compose ps --format '  {{.Service}}\t{{.Status}}'
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::services did not become healthy"
+          docker compose ps
+          docker compose logs --tail 50
+          exit 1
+
+      - name: pytest
+        run: uv run pytest tests/ -q
+
+      - name: Pre-demo drop check
+        # CLAUDE.md: run this AFTER the suite. One dropped auth_failed event
+        # within a second of the disruptive test stopping the audit container is
+        # the documented expected pattern; anything else means lost receipts.
+        if: always()
+        run: |
+          docker compose logs --since 20m --timestamps 2>&1 \
+            | grep -E "dropped|Shutting down" || echo "clean"
+
+      - name: Container logs
+        if: failure() || inputs.keep_logs
+        run: docker compose logs --no-color > compose-logs.txt
+
+      - uses: actions/upload-artifact@v4
+        if: failure() || inputs.keep_logs
+        with:
+          name: compose-logs
+          path: compose-logs.txt
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
