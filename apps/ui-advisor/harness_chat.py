@@ -29,9 +29,23 @@ from dataclasses import dataclass
 
 import chainlit as cl
 import httpx
+from chainlit.input_widget import Switch
 
 IDENTITY_URL = os.environ.get("IDENTITY_URL", "http://identity-stub:8001")
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://gateway:8000")
+
+# The kill switch, read the same way the orchestrator reads it. Off, this file
+# behaves exactly as it did before skills existed: no settings panel, no field
+# on the wire, nothing in the suffix line.
+SKILLS_ENABLED = os.environ.get("SKILLS_ENABLED", "true").strip().lower() not in {
+    "0", "false", "no", "off", "",
+}
+
+# The one skill either surface offers, and the id config/skills.yaml gives it.
+# The surface holds the name and nothing else: what the skill *does* lives in
+# the registry the orchestrator reads, so a surface cannot author behaviour any
+# more than it can author authorization.
+PLAIN_LANGUAGE = "plain_language"
 
 # A question that reaches a model and four tool servers is not a 10-second
 # question. Long enough that a real answer arrives, short enough that a wedged
@@ -97,22 +111,47 @@ def _token() -> str | None:
 async def start_chat(brand: Branding) -> None:
     """Open a session: empty history, and a greeting that names who is signed in."""
     cl.user_session.set("history", [])
+    cl.user_session.set("active_skills", [])
+    if SKILLS_ENABLED:
+        # Default off, so the certified behaviour is what a fresh session gets
+        # and switching the skill on is a deliberate act somebody can be seen
+        # performing.
+        await cl.ChatSettings([
+            Switch(id=PLAIN_LANGUAGE, label="Plain language", initial=False),
+        ]).send()
     user = cl.user_session.get("user")
     who = getattr(user, "display_name", None) or getattr(user, "identifier", "there")
     await cl.Message(content=brand.greeting.format(who=who)).send()
 
 
-def _suffix(tools_used: list[str]) -> str:
+async def settings_updated(settings: dict) -> None:
+    """The switch, turned. Held here and sent with the next question.
+
+    The surface stores a name and decides nothing: whether this caller may
+    activate that skill is the orchestrator's call, against the caller's own
+    token, and a refusal comes back as an answer like any other.
+    """
+    if not SKILLS_ENABLED:
+        return
+    active = [PLAIN_LANGUAGE] if settings.get(PLAIN_LANGUAGE) else []
+    cl.user_session.set("active_skills", active)
+
+
+def _suffix(tools_used: list[str], active_skills: list[str]) -> str:
     """The receipts line under an answer.
 
     Inline code rather than a heading or a bold line: it should be legible from
     the back of a room without competing with the answer for attention. An empty
     list is stated rather than hidden — "no tools" is the whole story in demo
     moment 3, where a refusal never leaves the gateway.
+
+    An active skill is named on the same line for the same reason the tools are:
+    the answer's register is part of how it was produced, and a room watching a
+    reply change shape should be able to see why without being told.
     """
-    if not tools_used:
-        return "\n\n`no tools called`"
-    return "\n\n`tools: " + ", ".join(tools_used) + "`"
+    parts = ["plain language"] if PLAIN_LANGUAGE in active_skills else []
+    parts.append("tools: " + ", ".join(tools_used) if tools_used else "no tools called")
+    return "\n\n`" + " · ".join(parts) + "`"
 
 
 async def answer(message: cl.Message) -> None:
@@ -125,11 +164,17 @@ async def answer(message: cl.Message) -> None:
         return
 
     history: list[dict[str, str]] = cl.user_session.get("history") or []
+    active_skills: list[str] = (cl.user_session.get("active_skills") or []) if SKILLS_ENABLED else []
+    body: dict[str, object] = {"message": message.content, "history": history}
+    if SKILLS_ENABLED:
+        # Absent from the payload entirely when the feature is off, so the
+        # request on the wire is the one the certified configuration sent.
+        body["active_skills"] = active_skills
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             response = await client.post(
                 f"{GATEWAY_URL}/chat",
-                json={"message": message.content, "history": history},
+                json=body,
                 headers={"Authorization": f"Bearer {token}"},
             )
     except httpx.HTTPError:
@@ -154,7 +199,9 @@ async def answer(message: cl.Message) -> None:
 
     payload = response.json()
     reply = payload.get("reply", "")
-    await cl.Message(content=reply + _suffix(payload.get("tools_used") or [])).send()
+    await cl.Message(
+        content=reply + _suffix(payload.get("tools_used") or [], active_skills)
+    ).send()
 
     # The harness is stateless; this session holds the conversation and hands it
     # back on the next turn (SPEC §4.9).

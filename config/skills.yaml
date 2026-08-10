@@ -1,0 +1,50 @@
+# Skills — governed behavioral configuration (Session 12).
+#
+# A skill is a named, role-gated block of instructions a caller can switch on.
+# It shapes HOW an answer is written; it never decides WHAT may be answered.
+# Authorization lives in the MCP servers and nowhere else, and nothing in this
+# file can grant, widen, or soften a single one of those decisions — a skill
+# that could would be an authorization rule wearing a style sheet.
+#
+# The orchestrator reads this file, checks each requested skill against the
+# caller's own token, and injects the instructions of the ones that survive as
+# ONE trailing message after the static system prefix and before the question.
+# Never a prefix mutation: the prefix is what DeepSeek caches (SPEC §1), and a
+# skill that rewrote it would move every request in the session to a cache miss.
+#
+# Fields:
+#   name          the id a caller passes in active_skills
+#   roles         which roles may activate it, checked against the caller's
+#                 token exactly the way registry.yaml's tools are
+#   activation    whose judgement puts the skill on. Four values are meaningful
+#                 (user, role-default, surface-default, model-invoked) and this
+#                 POC implements `user` only; the field exists so the other
+#                 three are an extension rather than a redesign. See
+#                 docs/LESSONS.md entry 13 for the taxonomy and its one hard
+#                 rule — a policy skill is never model-invoked.
+#   description   one line, for a person choosing from a list
+#   instructions  the block that is injected when the skill is active
+
+skills:
+  - name: plain_language
+    roles: [advisor, dean, faculty, adjunct]
+    activation: user
+    description: "Plain-language mode — short sentences, everyday words, no jargon"
+    instructions: |
+      Write this reply in plain language.
+
+      Short declarative sentences, one idea in each. Everyday words in place of
+      institutional or technical ones: students who have stopped logging in
+      rather than a disengaged cohort, how many students rather than headcount,
+      what the job market is paying rather than median wage bands. No filler
+      opener, no throat-clearing, no sentence describing the answer you are
+      about to give. Where a term has no everyday equivalent — a course code, a
+      program code, an occupation title from the labor data — use it and say
+      what it means in the same sentence, once.
+
+      This shapes wording only. Every figure, name, id, code, term and
+      percentage stays exactly as the tool returned it. Every citation marker
+      stays where it was. A refusal is relayed with the specifics it gave you,
+      in the plainest words that keep them whole. Do not round a number, do not
+      summarise one away, do not drop a citation to shorten a sentence, and do
+      not soften, shorten or omit a refusal.

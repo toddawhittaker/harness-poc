@@ -18,10 +18,10 @@ Every claim here is drawn from the session reports in `reports/session-*.md`
 and the verification records in `DEMO_VERIFICATION.md`. Session numbers are
 given so the underlying evidence can be checked.
 
-A note on how to read this. The single most useful pattern across ten sessions
-is stated in entry 4: **defects we fixed in code stayed fixed, and defects we
-fixed by rewriting instructions to the model came back.** Most of the other
-entries are instances of it.
+A note on how to read this. The single most useful pattern across twelve
+sessions is stated in entry 4: **defects we fixed in code stayed fixed, and
+defects we fixed by rewriting instructions to the model came back.** Most of the
+other entries are instances of it.
 
 ---
 
@@ -430,6 +430,16 @@ things in groups, ship the group membership too — the identifiers, not just th
 sizes — because a model given four correct counts will still sort by its own
 notion of severity and let that ordering overwrite the definitions.
 
+That last one is no longer advice. Session 12 built it: `get_my_advisees`
+returns `flagged_ids`, `quiet_ids` and `flagged_and_quiet_ids` beside the four
+counts, each count being the length of the list next to it, and the docstring
+says the lists are authoritative. Five runs of the counting beat afterwards put
+every student in the right group, with no reply contradicting itself — against
+Session 11's certified pass, which had the counts right and two students under
+the wrong headings with their real login gaps printed beside them. It is the
+fifth instance of "let the tool compute it", and like the four before it, it
+held.
+
 Where a derived number is unavoidable, budget for reasoning mode on that path
 and measure it — but measure more than accuracy and latency. Reasoning mode
 changes how eagerly a model calls tools, and if anything you care about depends
@@ -535,7 +545,7 @@ correct pattern and we did not notice: the bypass script (`scripts/demo_bypass.s
 calls the tool server directly with a low-privilege token, every time, and its
 refusal row is the one receipt in the whole script that cannot fail to appear.
 
-**Where.** Session 11, both certification passes; `SESSION_REPORT.md` §9,
+**Where.** Session 11, both certification passes; `reports/session-11.md` §9,
 question 2.
 
 **What the MVP should do.** Separate the two things the demonstration was
@@ -547,6 +557,100 @@ refusals into the same audit log the conversations write into. Then the receipt
 exists whether or not anyone asked the right question that day, and the audit
 trail can answer "did the rules hold this week" without depending on a model's
 choices at all.
+
+---
+
+## 13. Skills: behaviour is configuration, and configuration must be governed
+
+**What happened.** In the last session we added the smallest possible version of
+a feature the MVP will certainly want: a named block of instructions a user can
+switch on, which changes how an answer is written without changing what it may
+contain. One skill, `plain_language` — short sentences, everyday words, and an
+explicit carve-out saying that figures, citations and refusals are untouched.
+
+The interesting part is not the skill. It is that a skill is a piece of
+behaviour arriving from outside the code, and everything we already knew about
+governing *tools* turned out to apply unchanged to governing *behaviour*. Four
+properties, and each one is a deliberate contrast with pasting extra text into a
+prompt:
+
+- **It exists in a registry.** `config/skills.yaml` is the whole catalogue. A
+  caller sends a *name*; the instructions never travel on the wire. So a caller
+  can ask for a skill and cannot author one, and an unknown name is refused
+  rather than quietly ignored — an answer written in a register nobody chose,
+  with nothing in the reply to say so, is the outcome worth avoiding.
+- **It is role-gated, against the caller's own token.** Each skill names the
+  roles that may activate it, checked in the same service, against the same
+  verified claims, as the tool allowlist. A caller whose roles do not cover a
+  skill is refused, courteously, and the refusal is audited.
+- **It is injected as a trailing message.** The instructions go after the static
+  system prefix and immediately before the question — never merged into the
+  prefix. The prefix is what the provider caches (entry 11), and a skill that
+  rewrote it would turn every request in the session into a cache miss. Across
+  every arm we measured, the minimum cache hit stayed at its usual floor and no
+  call reported zero hits.
+- **It is visible afterwards.** `answer_returned` carries `active_skills`, so a
+  reply's register is as recoverable from the audit trail as the tools behind
+  it. Someone asking "why did this answer read differently?" gets an answer from
+  the record rather than from memory.
+
+None of this is authorization. A skill cannot widen what anyone may see, because
+that decision lives in the tool servers, which know nothing about this file. The
+only boundary the skill machinery enforces is the boundary on the skill itself.
+
+**And it is not free.** With the skill switched on, the model became measurably
+readier to answer before calling a tool. On the beat where a faculty member asks
+about a section she does not teach, the tool-layer refusal appeared in 3 of 5
+runs with the skill on against 4 of 4 with it off, the answer-provenance check
+fired six times in ten replies against twice in eight, and one run ended in the
+flat "I cannot ground an answer to that" sentence. This is entry 12's finding
+arriving from a new direction: an instruction block sitting immediately before
+the question competes with the question for the model's attention, and what it
+displaces first is the decision to go and fetch something. So a behavioural
+skill is a change to the agent loop, not a change to the stylesheet, and it
+needs measuring on the beats that depend on a tool call actually being made —
+not only on the beats whose prose it was meant to improve.
+
+**The activation taxonomy, which is the part worth stealing.** Every skill has
+to answer one question before anything else: *whose judgement puts this on?*
+Four answers, and each one encodes a different kind of thing.
+
+| Activation | Whose judgement | What the skill encodes | POC-grounded example |
+|---|---|---|---|
+| `user` | the person asking | a **choice** | `plain_language` — a dean decides she wants this answer in plain words. Nobody else is involved, and it is off again next session |
+| `role-default` | the institution | a **policy** | a skill that is on for every adjunct, requiring each answer to say which figures are public data and which are not. The adjunct did not choose it and cannot switch it off |
+| `surface-default` | the product | a **genre** | the Advisor Workspace and Executive Insights are two rooms. "One student at a time, next action first" belongs to the first; "programme-level headline first, no individuals" belongs to the second. The door decides what kind of document this is |
+| `model-invoked` | the model | **know-how** | the skills-matching procedure — fetch the programme's outcomes, intersect the skill tags as exact strings, report what is covered and name what is missing. Today it sits in the static prompt and is paid for on every request, including the ones that will never need it |
+
+**One hard rule, and it is a rule rather than a preference: a policy skill is
+never model-invoked.** If the institution decided it, the model does not get a
+vote on whether it applies. The moment a compliance framing, a suppression rule,
+or a required disclosure becomes something a model loads when it judges the
+situation calls for it, the institution's policy has become the model's opinion
+— and the whole argument of this system is that the model is never the boundary.
+
+Model-invoked skills are still legitimate, for know-how, under two conditions
+that make them safe: they are **catalog-governed** — the model chooses *when*,
+the registry governs *what exists*, and a skill the registry does not contain
+cannot be summoned — and they are **audit-stamped**, so the record says which
+skill loaded on which request. The model picks the moment; it never picks the
+menu, and it never picks in secret.
+
+**Where.** Session 12. `config/skills.yaml`,
+`services/orchestrator/skills.py` (about a hundred and thirty lines, no
+dependency beyond the YAML parser already present), `tests/test_skills.py`.
+
+**What the MVP should do.** Build the registry before the second skill, not
+after: two skills pasted into a prompt look cheaper than one registry right up
+to the moment somebody asks which users have which behaviours switched on. Put
+`activation` in the schema from the first day even if only one value is
+implemented, because it is the field that stops a policy from being written as a
+preference. Gate skills on roles in the same place and against the same claims
+you gate tools, so there is one answer to "where are entitlements decided" and
+not two. And ship the kill switch with the feature: ours is one environment
+variable that removes the toggle from both surfaces, stops the field being sent,
+stops it being validated, and leaves no trace in the audit trail — which is what
+let us certify the feature and the absence of the feature in the same session.
 
 ---
 

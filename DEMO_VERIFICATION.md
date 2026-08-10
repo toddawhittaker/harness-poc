@@ -17,7 +17,159 @@ fails the seed run if the shape above stops being true.
 
 ---
 
-# Session 11 verification — the current record, and the freeze certification
+## The optional plain-language beat — after 8, before the receipts
+
+Added in Session 12. It is **optional**, it belongs **between demo moment 8 and
+demo moment 9**, and it is the only place in the script where the toggle should
+be touched.
+
+**How to run it.** Kim is already in Executive Insights from moments 7 and 8.
+Open the settings panel, turn **Plain language** on, and ask moment 2's question
+again in Kim's own words: *"Which students seem to be struggling this term?"*
+The answer comes back in a different register — everyday words in place of
+institutional ones, no deliberation before the finding — with every figure, every
+citation and the role scoping exactly as before. The suffix line under the reply
+reads `plain language · tools: …`, and the `answer_returned` row on the audit
+page carries `active_skills: ["plain_language"]`, which is the point of the beat:
+*the way an answer is written is configuration, it is governed by the same
+registry and the same roles as the tools, and it is on the record.* Turn the
+toggle off again before anything else.
+
+**Say out loud** that the skill shapes wording only — the figures, the citations
+and any refusal are untouched by design — and that the registry names which
+roles may switch it on, checked against the caller's token in the orchestrator,
+never in the app.
+
+**Two constraints, and the second one matters.**
+
+1. The toggle is **off by default** and resets on every new chat session, so the
+   certified behaviour is what a fresh demo gets. `SKILLS_ENABLED=false` in
+   `.env` removes it from both surfaces entirely.
+2. **Do not run demo moment 5 with the toggle on.** Session 12 measured it: with
+   the skill active, noor's second turn produced the tool-layer refusal in 3 of
+   5 runs against 4 of 4 with it off, the groundedness guard fired six times in
+   ten replies against twice in eight, and one run ended in the flat "I can't
+   ground an answer to that" sentence. An instruction block sitting immediately
+   before the question makes the model readier to answer than to fetch, and what
+   it displaces first is the tool call the refusal beat depends on. The
+   plain-language beat is a prose beat; keep it on prose.
+
+---
+
+# Session 12 verification — the current record, and the freeze certification
+
+One pass, run by the demo-verifier agent against the live compose stack with all
+ten services healthy, **rows 7153–7250**, 2026-08-10 00:10:42–00:14:19Z.
+Configuration verified on the live containers first: orchestrator
+`AGENT_THINKING=false`, `SKILLS_ENABLED=true`; gateway `ROUTER_THINKING=false`.
+Driven through the gateway's `/chat` with real RS256 persona tokens — the same
+HTTP path the two Chainlit apps use — with step 5b carrying step 5a's rendered
+prose back as client-held history. Step 4 ran `./scripts/demo_bypass.sh`
+unmodified. Nothing in the repository was changed during the pass.
+
+**Verdict: 13 of 14 beats pass. Step 5c fails. The certification is NOT clean.**
+
+| Step | Result | Note |
+|---|---|---|
+| 1 | PASS | All four counts (25 / 9 / 8 / 6) **and group membership exact in all three headings** — see below |
+| 2 | PASS | All 30 aggregate figures exact, no student named, `[colleague]` and `[canvas]` cited separately and correctly |
+| **2b** | **PASS** | Step 2's question with `active_skills: ["plain_language"]`. Every figure still exact, no student named, citations present, row **7171** carries the skill. One attribution wart, W2 below |
+| 3a / 3b | PASS / PASS | `refused_at_gate` row 7173 with zero tool rows; all 12 occupations exact |
+| 4 | PASS | `tools_used: []`, mcp-colleague refusal row **7180** verbatim |
+| 5a | PASS | CYB-310-A resolved; all eight students exact; `[canvas]` |
+| 5b | PASS on both halves | The spec sentence **verbatim**, and the amber row exists: **7192**, mcp-canvas, `decision: refused` |
+| **5c** | **FAIL** | All 18 rollup cells and all 6 missing-submission counts exact — then the closing sentence says "**78** missing submissions" where the databases say **112** |
+| 6 | PASS | Every seat count, sequence, prereq and grade exact; CS-460 correctly blocked |
+| 7 | PASS | 8/8, 3/7, 0/7, 0/7 — **zero arithmetic errors**, every skill string exact |
+| 8 | PASS | Six distinct `get_course_outcomes` calls before any catalog-wide claim; all twelve tallies correct |
+| 9 | PASS | Amber rows for the gate refusal, the bypass and 5b; grey rows for the three guard fires |
+| 10 | PASS | 401 at all six services independently — rows 7245–7250 |
+
+Standing checks: **22** model-call rows, minimum `prompt_cache_hit_tokens`
+**896**, **zero** calls with zero hits. All four spec-fixed refusal strings
+verbatim at the tool layer (rows 7240–7243) plus the faculty/dean asymmetry on
+the same call one second apart (7243 noor refused, 7244 kim ok). **Zero** dropped
+audit events in the window. `tools_used ⊆ tools_offered` on all eleven
+`answer_returned` rows, every one carrying `unoffered_calls`, every one empty.
+Every id, code and name resolves in a database. Guard ledger: three fires, three
+regenerations, **zero declines** (7184, 7191, 7198 — all canvas-only requests
+cited `[colleague]`).
+
+`active_skills` discipline: row **7171** carries `["plain_language"]`; the other
+ten `answer_returned` rows carry `[]`. Rows 7251–7260 are the session author's
+own ui-advisor socket.io probes and are excluded from the window.
+
+## The failure — step 5c's total
+
+The rollup table is perfect and the sentence after it is not:
+
+> "Across all six programs, 78 missing submissions are outstanding."
+
+Recomputed: 16 + 24 + 28 + 10 + 22 + 12 = **112**. 78 is the running sum of the
+first four rows of the model's own table in the order it printed them; it stopped
+adding after four.
+
+This is not a seed fault and not a tool fault.
+`get_program_engagement_rollup` returns six correct per-program counts and the
+model added them itself — the wrong-secondary-number class Session 11 recorded
+twice in §5.3 and once in pass A, landing this time on a figure the room reads
+aloud. **It is unrelated to anything Session 12 built:** step 5c ran with the
+skills toggle off, and neither the membership lists nor the skill touches
+mcp-canvas.
+
+**The fix, proposed and not built** (`services/mcp-canvas/` was outside Session
+12's permitted diff, and the session's no-fixing-after-measurement rule applied):
+have `get_program_engagement_rollup` return `total_sections`,
+`total_enrollment` and `total_missing_submissions` beside the per-program rows,
+so the model transcribes the total instead of deriving it. It is the fifth
+instance of the lesson that closed step 1 — when a number appears on screen, have
+the tool compute it.
+
+## What the two new items did
+
+**Step 1's group membership is exact, and the Session 11 defect is closed.**
+S-1045 (last login today) is under "flagged but active" and S-1054 (25 days) is
+under "both flagged and quiet" — the precise swap Session 11's certified pass got
+wrong. No reply contradicts itself, all four counts are stated, and the tool is
+never overruled.
+
+**Step 2b's skill behaved as designed.** Same facts in plainer words: continuous
+prose rather than a table, every code expanded on first use, "its 48 students"
+for "headcount", "have not logged in for more than ten days" for "the highest
+share disengaged", and no throat-clearing. Every figure exact, no student named,
+and — worth noting — 2b states no cross-program total, so it does not repeat
+step 5c's error.
+
+## Warts, none of them spec violations
+
+- **W1** Steps 7 and 8 open with visible model deliberation ("Now let me check
+  the skill match…"). The Session 9 narration leak, now on the synthesis beats
+  rather than on step 2.
+- **W2** Step 2b signs canvas figures `[colleague]` — "63.6% logged in… 12
+  missing submissions across 4 sections [colleague]". Step 2, the same question
+  without the skill, cited both servers correctly. The groundedness guard cannot
+  catch it: both servers ran, so `[colleague]` is a grounded marker.
+- **W3** Steps 2 and 2b put a colleague headcount and a canvas weekly-login rate
+  in one breath — "63.6% of its 48 students" blends a 300-student SIS population
+  with a 165-student Canvas population. No figure is wrong; the juxtaposition
+  invites a wrong reading.
+- **W4** Step 4 produced no grey `unoffered` row this time — the model reached
+  for nothing it did not hold. Better behaviour, one fewer colour for moment 4.
+- **W5** Step 5b's refusal was again produced by the guard's retry (row 7191).
+  `docs/LESSONS.md` entry 12 stands unchanged: the beat that proves the boundary
+  still depends on the model volunteering to test it.
+
+**Seed-data assessment: no change needed, and the verifier recommends against
+one.** The 25/9/8/6 quartet holds, the membership lists are unambiguous, S-1055
+still has three clean options and one blocked capstone, and AI/ML Engineers and
+Cloud Infrastructure Architects are still the only two unmapped fast-growers at
+ranks 1 and 2 by growth.
+
+This section supersedes the Session 11 record below it.
+
+---
+
+# Session 11 verification — superseded by Session 12 above
 
 Two full passes were run this session, in two different configurations, by the
 demo-verifier agent against the live compose stack with all ten services
@@ -123,7 +275,9 @@ half-sentence, on the beat where the room is meant to be watching role scoping;
 from mcp-canvas with `[colleague]` throughout, on the slide whose argument is
 that the harness joins independent sources.
 
-This section supersedes the Session 9 record below it.
+This section is superseded by the Session 12 record above; it is kept because
+it is the last pass run before the membership lists and the skills toggle
+existed.
 
 ---
 

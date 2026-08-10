@@ -926,6 +926,22 @@ def verify(state: dict[str, dict]) -> None:
     for sid in DANA_QUIET_UNFLAGGED:
         assert sid in set(DANA_QUIET_IDS), f"{sid} is meant to be one of the quiet tail"
 
+    # get_my_advisees ships flagged_ids, quiet_ids and flagged_and_quiet_ids
+    # beside the four counts, so demo moment 1 can read group membership off the
+    # tool instead of deciding it. The lists have to BE the 25/9/8/6 cast and
+    # have to agree with each other — flagged ∩ quiet is the fourth number by
+    # definition, and a cast where it is not would ship three lists the counts
+    # above do not describe.
+    flagged_ids = {s["id"] for s in flagged}
+    quiet_ids = {s["id"] for s in quiet}
+    both_ids = {s["id"] for s in flagged_and_quiet}
+    assert (len(dana_advisees), len(flagged_ids), len(quiet_ids), len(both_ids)) == (25, 9, 8, 6) \
+        and flagged_ids & quiet_ids == both_ids, (
+        f"the three membership lists must be consistent with the 25/9/8/6 cast: "
+        f"{len(dana_advisees)} advisees, flagged {sorted(flagged_ids)}, "
+        f"quiet {sorted(quiet_ids)}, both {sorted(both_ids)}"
+    )
+
     # The RBAC refusal needs a seeded student inside dana's id range who is not
     # hers, or the test proves "no such student" instead of "not your advisee".
     numbers = sorted(int(sid.split("-")[1]) for sid in DANA_ADVISEE_IDS)
@@ -1129,6 +1145,8 @@ def verify(state: dict[str, dict]) -> None:
           f"({', '.join(sorted(s['id'] for s in quiet_unflagged))})")
     print(f"    flagged while still logging in: {len(flagged_active)} "
           f"({', '.join(sorted(s['id'] for s in flagged_active))})")
+    print(f"    membership lists ship with the counts: flagged {len(flagged_ids)}, "
+          f"quiet {len(quiet_ids)}, both {len(both_ids)} ({', '.join(sorted(both_ids))})")
     print(f"  program spread: GPA {gpa_spread:.2f}, quiet share {quiet_spread:.1f} points")
     for code in sorted(per_program):
         print(f"    {code:7} avg GPA {per_program[code][0]:.2f}, quiet {per_program[code][1]:.1f}%")

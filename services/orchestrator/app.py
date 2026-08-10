@@ -45,6 +45,7 @@ from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset
 
 import grounding
+import skills
 from prompts import SYSTEM_PROMPT
 from registry import allowed_tools, registry_tools
 
@@ -170,6 +171,12 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[Message] = Field(default_factory=list)
+    # Skills the caller wants applied to this answer (config/skills.yaml). Names
+    # only: the instructions live in the registry, never on the wire, so a
+    # caller can ask for a skill and cannot author one. Validated against the
+    # registry and the caller's roles below, and ignored entirely when
+    # SKILLS_ENABLED is off.
+    active_skills: list[str] = Field(default_factory=list)
 
 
 class ChatReply(BaseModel):
@@ -275,11 +282,18 @@ async def connect_toolsets(
     return live
 
 
-def message_history(history: list[Message]) -> list[Any]:
+def message_history(history: list[Message], skill_prompt: str | None = None) -> list[Any]:
     """Prior turns, as messages after the static prefix.
 
     The harness is stateless; the client holds the conversation and hands it
     back each time. Anything unrecognised is dropped rather than guessed at.
+
+    An active skill's instructions ride at the END of this list — after the
+    history, immediately before the question, and never inside SYSTEM_PROMPT.
+    That position is the whole design: the cached prefix stays byte-identical
+    whether a skill is on or off (SPEC §1), and the instructions sit close
+    enough to the question to shape the answer to it. It is the same technique
+    REGROUND_INSTRUCTION uses, for the same reason.
     """
     messages: list[Any] = []
     for turn in history:
@@ -287,6 +301,8 @@ def message_history(history: list[Message]) -> list[Any]:
             messages.append(ModelRequest(parts=[UserPromptPart(content=turn.content)]))
         elif turn.role in {"assistant", "model"}:
             messages.append(ModelResponse(parts=[TextPart(content=turn.content)]))
+    if skill_prompt:
+        messages.append(ModelRequest(parts=[UserPromptPart(content=skill_prompt)]))
     return messages
 
 
@@ -360,6 +376,29 @@ async def chat(
     regenerated = False
     declined = False
 
+    # Skills, before anything expensive happens. A skill the caller may not
+    # activate is refused here rather than dropped, and the request stops: an
+    # answer written in a register the caller did not choose, with no way to
+    # tell from the reply, would be the worse outcome.
+    #
+    # This is a boundary on the SKILL, not on the data. Nothing below changes
+    # what the caller may see, and the MCP servers know nothing about any of it.
+    active_skills: list[str] = []
+    skill_prompt: str | None = None
+    if skills.SKILLS_ENABLED and request.active_skills:
+        try:
+            chosen = skills.resolve(request.active_skills, claims.roles)
+        except skills.SkillRefused as refusal:
+            await audit_event(
+                "skill_refused", sub=claims.sub, roles=claims.roles,
+                detail={"skill": refusal.skill, "reason": refusal.reason,
+                        "requested": request.active_skills,
+                        "latency_ms": round((time.perf_counter() - started) * 1000, 1)},
+            )
+            return ChatReply(reply=refusal.message, tools_used=[], unoffered_calls=[])
+        active_skills = [skill.name for skill in chosen]
+        skill_prompt = skills.skill_message(chosen)
+
     try:
         async with AsyncExitStack() as stack:
             agent = Agent(
@@ -370,7 +409,7 @@ async def chat(
             )
             result = await agent.run(
                 caller_context(claims, request.message),
-                message_history=message_history(request.history),
+                message_history=message_history(request.history, skill_prompt),
             )
 
             # The groundedness guard (SPEC §4.3). Inside the stack because the
@@ -478,6 +517,13 @@ async def chat(
             # worth looking at.
             "regenerated": regenerated,
             "ungrounded": declined,
+            # Which skills shaped this answer's wording. Present on every row
+            # while the feature is on, empty when nothing was active, and absent
+            # altogether when SKILLS_ENABLED is off — so a trail written with
+            # the feature dark is byte-for-byte the trail written before it
+            # existed. A reply's register should be as recoverable afterwards as
+            # the tools behind it.
+            **({"active_skills": active_skills} if skills.SKILLS_ENABLED else {}),
             "latency_ms": round((time.perf_counter() - started) * 1000, 1),
             **usage.model_dump(),
         },

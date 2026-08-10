@@ -13,7 +13,14 @@ signing pat in here during Q&A is the cleanest way to show it.
 from __future__ import annotations
 
 import chainlit as cl
-from harness_chat import Branding, answer, authenticate, start_chat, starters
+from harness_chat import (
+    Branding,
+    answer,
+    authenticate,
+    settings_updated,
+    start_chat,
+    starters,
+)
 
 BRAND = Branding(
     name="Executive Insights",
@@ -49,6 +56,11 @@ async def set_starters() -> list[cl.Starter]:
 @cl.on_chat_start
 async def on_chat_start() -> None:
     await start_chat(BRAND)
+
+
+@cl.on_settings_update
+async def on_settings_update(settings: dict) -> None:
+    await settings_updated(settings)
 
 
 @cl.on_message

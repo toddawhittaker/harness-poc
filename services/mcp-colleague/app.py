@@ -96,12 +96,30 @@ class AdviseeRoster(BaseModel):
     No count can be derived from the two beside it, because a total and two
     subset sizes do not fix their overlap; so it is counted here, from the same
     rows, like the others.
+
+    The three id lists are the last step of the same argument, and the counts
+    are now derived from them rather than beside them. Four correct counts still
+    left the model deciding *which* advisee belongs in which group, and Session
+    11's certification pass caught it sorting by its own notion of severity and
+    letting that ordering overwrite the definitions: a student who logged in
+    today printed under "flagged and quiet", a student 25 days silent under
+    "flagged but still logging in", each with his real login gap beside the
+    wrong heading, so the answer contradicted itself on screen twice. Membership
+    is not a matter of judgement either — it is the same two predicates that
+    produced the counts — so the tool ships the names as well as the sizes, and
+    each count is `len()` of the list beside it.
     """
 
     advisee_count: int
     flagged_count: int
     quiet_count: int
     flagged_and_quiet_count: int
+    # Exactly who is in each group, as student ids, in the same order as
+    # `advisees`. Authoritative: a reader that disagrees with these lists is
+    # wrong about the group, not about the data.
+    flagged_ids: list[str]
+    quiet_ids: list[str]
+    flagged_and_quiet_ids: list[str]
     advisees: list[Advisee]
 
 
@@ -312,7 +330,7 @@ async def healthz(request: object) -> JSONResponse:
 
 @mcp.tool()
 async def get_my_advisees(ctx: Context) -> AdviseeRoster:
-    """The advisees assigned to you, with current courses, GPA, days since last login, and any term grade flags. advisee_count is how many there are; flagged_count is how many carry at least one term grade flag; quiet_count is how many have not logged in for more than ten days; flagged_and_quiet_count is how many are both flagged and quiet."""
+    """The advisees assigned to you, with current courses, GPA, days since last login, and any term grade flags. advisee_count is how many there are; flagged_count is how many carry at least one term grade flag; quiet_count is how many have not logged in for more than ten days; flagged_and_quiet_count is how many are both flagged and quiet. flagged_ids, quiet_ids and flagged_and_quiet_ids name exactly which advisees are in each group. Those three lists are authoritative: an advisee is in a group if and only if this result puts their id in that group's list, and every count is the length of the list beside it."""
     claims = caller(ctx)
     async with audited("get_my_advisees", claims, {}):
         require_role(claims, "advisor", "get_my_advisees")
@@ -329,13 +347,20 @@ async def get_my_advisees(ctx: Context) -> AdviseeRoster:
                 term_grade_flags=grade_flags(student_id),
             ))
         advisees.sort(key=lambda a: a.student_id)
+        # One membership test per group, applied to the rows this result ships,
+        # and every count below is the length of one of these lists. A count and
+        # its list cannot disagree because the count is not computed separately.
+        flagged = [a for a in advisees if a.term_grade_flags]
+        quiet = [a for a in advisees if a.last_login_days > QUIET_AFTER_DAYS]
+        both = [a for a in flagged if a.last_login_days > QUIET_AFTER_DAYS]
         return AdviseeRoster(
             advisee_count=len(advisees),
-            flagged_count=sum(1 for a in advisees if a.term_grade_flags),
-            quiet_count=sum(1 for a in advisees if a.last_login_days > QUIET_AFTER_DAYS),
-            flagged_and_quiet_count=sum(
-                1 for a in advisees
-                if a.term_grade_flags and a.last_login_days > QUIET_AFTER_DAYS),
+            flagged_count=len(flagged),
+            quiet_count=len(quiet),
+            flagged_and_quiet_count=len(both),
+            flagged_ids=[a.student_id for a in flagged],
+            quiet_ids=[a.student_id for a in quiet],
+            flagged_and_quiet_ids=[a.student_id for a in both],
             advisees=advisees,
         )
 

@@ -4,7 +4,7 @@ Two patches from Session 11, whose work was measured, certified against, and
 then reverted by a pre-authorized fallback. They are tracked because the
 reversion was a judgement about *this* demonstration, not a verdict on the code:
 what killed the change here is an artefact of the POC's architecture, and the
-MVP will not have it. `SESSION_REPORT.md` §4 and §6 are the full account;
+MVP will not have it. `reports/session-11.md` §4 and §6 are the full account;
 `docs/LESSONS.md` entries 5, 9 and 12 are the short one.
 
 **Check the base commit before applying.** These are not both against the same
@@ -44,14 +44,41 @@ does not have it.** Take the patch; do not inherit the reversion.
 
 The five tests cover the wrong-server correction, a marker naming no server at
 all, the two-server case unchanged in both directions, a reply with no markers
-never being given one, and a correct reply passing untouched.
+never being given one, and a correct reply passing untouched. They pass:
+applying this patch to `0e08b1c` takes the suite from 133 to 138, and
+`uv run pytest tests/test_orchestrator_grounding.py -q` reported 7 passed with
+it in place (`reports/session-11.md` §4.4).
+
+### The variant to build, and why it is not this patch
+
+Take the correction **and keep the tool-first retry**. In this POC the two are
+one thing: the guard either rejects a reply — which sends
+`REGROUND_INSTRUCTION`, whose first demand is *call a tool before you write
+anything* — or it corrects the reply and returns it, sending nothing. The patch
+moves a whole class of replies from the first path to the second, and that is
+what silently removed the tool call the demonstration depended on.
+
+They are separable, and separating them is a small change to
+`services/orchestrator/app.py`: on a correction, rewrite the markers **and**
+re-drive the turn with the tool-first instruction, keeping whichever answer
+comes back grounded. The reply is then correct in its citations *and* produced
+by a run that was told to reach for a tool first, so nothing downstream is
+depending on a check failing.
+
+**This variant was never measured** — not in Session 11, not in Session 12. It
+is the recommendation, not a result. Whoever builds it should measure the same
+two things Session 11 measured: how often the correction fires and gets it
+right, and how often the authorization refusal that the demonstration turns on
+actually reaches the tool server. `docs/LESSONS.md` entry 5 is the coupling
+lesson and entry 12 is the other half — the receipt should never have depended
+on the retry in the first place.
 
 ## `session-11-full.patch`
 
 The complete experimental configuration as measured, against `1b55ba5`: the
 marker correction plus the split of `AGENT_THINKING` into one flag per model and
 the agent switched into extended-reasoning mode. Apply this one to reproduce the
-measurements in `SESSION_REPORT.md` §5 exactly — the arithmetic result the
+measurements in `reports/session-11.md` §5 exactly — the arithmetic result the
 reasoning arm bought, and the refusal it cost.
 
 Note that the flag split itself was *not* reverted: it is on `main` already, in

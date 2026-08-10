@@ -99,6 +99,12 @@ services:
       HARNESS_JWKS_URL: http://identity-stub:8001/jwks.json
       HARNESS_AUDIT_URL: http://audit:8030/events
       REGISTRY_PATH: /config/registry.yaml
+      SKILLS_PATH: /config/skills.yaml
+      # The skills kill switch (Session 12). Off, /chat validates nothing and
+      # ignores nothing: the field is simply unused, no active_skills appears in
+      # any audit row, and the request path is the one certified in Session 11.
+      # Set on the two surfaces as well, so the toggle disappears with it.
+      SKILLS_ENABLED: ${SKILLS_ENABLED:-true}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       AGENT_MODEL: ${AGENT_MODEL:-deepseek-v4-pro}
@@ -272,6 +278,10 @@ services:
       # real values in .env — a public URL plus a published cookie secret is a
       # forgeable login.
       CHAINLIT_AUTH_SECRET: ${CHAINLIT_AUTH_SECRET_ADVISOR:-harness-poc-demo-cookie-secret-advisor}
+      # Whether this surface offers the plain-language switch at all. Same
+      # variable as the orchestrator's, so one setting darkens the feature end
+      # to end rather than leaving a toggle that nothing acts on.
+      SKILLS_ENABLED: ${SKILLS_ENABLED:-true}
     volumes:
       - ./apps/ui-advisor:/app/apps/ui-advisor
     depends_on:
@@ -300,6 +310,8 @@ services:
       # Same as ui-advisor above, and deliberately a different variable and a
       # different default: two surfaces, two session-cookie secrets.
       CHAINLIT_AUTH_SECRET: ${CHAINLIT_AUTH_SECRET_EXEC:-harness-poc-demo-cookie-secret-exec}
+      # Same as ui-advisor above: the toggle exists only where the feature does.
+      SKILLS_ENABLED: ${SKILLS_ENABLED:-true}
     volumes:
       - ./apps/ui-exec:/app/apps/ui-exec
     depends_on:

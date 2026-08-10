@@ -42,6 +42,11 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[Message] = Field(default_factory=list)
+    # Carried, not read. The surfaces send the skills a user switched on and the
+    # orchestrator validates them against config/skills.yaml and the caller's
+    # roles; the gateway forwards the names untouched and makes no judgement
+    # about them, exactly as it makes none about the tools below it.
+    active_skills: list[str] = Field(default_factory=list)
 
 
 class ChatReply(BaseModel):
@@ -156,7 +161,8 @@ async def chat(
         response = await client.post(
             ORCHESTRATOR_URL,
             json={"message": request.message,
-                  "history": [turn.model_dump() for turn in request.history]},
+                  "history": [turn.model_dump() for turn in request.history],
+                  "active_skills": request.active_skills},
             headers={"Authorization": authorization},
         )
 

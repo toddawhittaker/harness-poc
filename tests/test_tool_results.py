@@ -243,6 +243,52 @@ def test_the_advisee_roster_counts_the_students_who_are_both(
 
 
 @pytest.mark.session2
+def test_the_advisee_roster_names_who_is_in_each_group(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """Four correct counts still left the model deciding who belongs where.
+
+    Session 11's certification pass read the counts correctly and then printed
+    a student who had logged in that day under "flagged and quiet" and a student
+    25 days silent under "flagged but still logging in" — each with his real
+    login gap beside the wrong heading, so the answer contradicted itself on
+    screen. Membership is the same two predicates that produced the counts, so
+    the tool now ships the ids too.
+
+    Both halves are checked: each list has the length its count claims, and each
+    list holds exactly the advisees the predicate selects from the rows shipped
+    beside it.
+    """
+    payload = dana_roster(token_for("dana"))
+
+    expected = {
+        "flagged_ids": ("flagged_count",
+                        [a for a in payload["advisees"] if a["term_grade_flags"]]),
+        "quiet_ids": ("quiet_count",
+                      [a for a in payload["advisees"]
+                       if a["last_login_days"] > QUIET_AFTER_DAYS]),
+        "flagged_and_quiet_ids": ("flagged_and_quiet_count",
+                                  [a for a in payload["advisees"]
+                                   if a["term_grade_flags"]
+                                   and a["last_login_days"] > QUIET_AFTER_DAYS]),
+    }
+    for field, (count_field, rows) in expected.items():
+        assert field in payload, f"get_my_advisees must state {field}: {sorted(payload)}"
+        ids = payload[field]
+        assert len(ids) == payload[count_field], (
+            f"{field} names {len(ids)} advisees and {count_field} says "
+            f"{payload[count_field]}; the count is meant to be the length of the list"
+        )
+        assert sorted(ids) == sorted(a["student_id"] for a in rows), (
+            f"{field} is {sorted(ids)} but the rows shipped beside it select "
+            f"{sorted(a['student_id'] for a in rows)}"
+        )
+        # A group nobody is in leaves demo moment 1 with a heading and nothing
+        # under it. scripts/seed.py::verify pins these at 9, 8 and 6.
+        assert ids, f"{field} is empty; check scripts/seed.py"
+
+
+@pytest.mark.session2
 def test_section_engagement_states_how_many_students_it_holds(
     session2_stack: None, token_for: Callable[[str], str]
 ) -> None:
