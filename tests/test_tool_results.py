@@ -19,6 +19,11 @@ Each field here exists because a demo answer went wrong without it:
   * `flagged_count` and `quiet_count` on the advisee roster — the same fault one
     level in. Once the total came from the tool, the subsets went wrong in its
     place: "eight of your advisees have flags" above a list of nine.
+  * the rollup totals — `total_sections`, `total_enrollment` and
+    `total_missing_submissions` — the same fault one level out. Six per-program
+    counts were exact and the sentence under the table said "78 missing
+    submissions" where the six add to 112: the model stopped adding after four
+    rows.
 
 They run against the live stack with real tokens, like everything else here.
 """
@@ -309,6 +314,49 @@ def test_section_engagement_states_how_many_students_it_holds(
         "student_count and enrollment count the same activity rows and must agree: "
         f"{payload['student_count']} vs {payload['enrollment']}"
     )
+
+
+@pytest.mark.session2
+def test_the_engagement_rollup_states_its_own_cross_program_totals(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """The number demo moment 5c reads aloud, counted by the tool.
+
+    Session 12's certification pass printed six correct per-program
+    missing-submission counts and then closed on "78 missing submissions" for a
+    catalog whose true total is 112 — the running sum of the first four rows of
+    its own table. Same shape as the advisee counts one level out: the model
+    reports a number it is handed and miscounts one it derives.
+
+    Each total is asserted against the rows shipped beside it, so a total that
+    drifted from its own table would fail here rather than on stage.
+    """
+    with mcp_session(MCP_SERVERS["mcp-canvas"], token_for("kim")) as session:
+        result = session.call_tool("get_program_engagement_rollup", {})
+    assert not result.refused, f"kim holds the dean role and must be served: {result.text[:300]}"
+
+    payload = structured(result.text)
+    programs = payload.get("programs")
+    assert programs, f"the rollup came back with no programs: {sorted(payload)}"
+
+    for total_field, row_field in (
+        ("total_sections", "sections"),
+        ("total_enrollment", "enrollment"),
+        ("total_missing_submissions", "missing_submissions"),
+    ):
+        assert total_field in payload, (
+            f"get_program_engagement_rollup must state {total_field}: {sorted(payload)}"
+        )
+        expected = sum(program[row_field] for program in programs)
+        assert payload[total_field] == expected, (
+            f"{total_field} is {payload[total_field]} but the {len(programs)} rows "
+            f"beside it sum to {expected}"
+        )
+        # Zero would satisfy the equality above and leave the beat with nothing
+        # to say. scripts/seed.py gives every program sections and students.
+        assert payload[total_field] > 0, (
+            f"{total_field} is zero; check scripts/seed.py"
+        )
 
 
 @pytest.mark.session2

@@ -18,7 +18,7 @@ Every claim here is drawn from the session reports in `reports/session-*.md`
 and the verification records in `DEMO_VERIFICATION.md`. Session numbers are
 given so the underlying evidence can be checked.
 
-A note on how to read this. The single most useful pattern across twelve
+A note on how to read this. The single most useful pattern across thirteen
 sessions is stated in entry 4: **defects we fixed in code stayed fixed, and
 defects we fixed by rewriting instructions to the model came back.** Most of the
 other entries are instances of it.
@@ -141,9 +141,20 @@ The measured record:
 | Demo's opening tallies wrong (Sessions 5–7) | **Tool returns the counts it used to make the model derive** (Session 8) | The three tool-supplied counts correct in every run since |
 | The one count the model still derived itself | Adding a fourth count field (Session 9) | Still wrong in 2 of 4 runs — the field was right, the sentence was not |
 | Same count | **Changing the data so the four counts are four distinct facts** (Session 10) | See entry 9 |
+| Students printed under the wrong group heading, with their real login gaps beside them (Session 11) | **Tool ships the group membership, not just the sizes** (Session 12) | 5 of 5 runs correct, and correct again in two certifications |
+| The executive rollup's cross-program total: "78 missing submissions" where the six programs sum to 112 (Session 12) | **Tool returns the three totals it used to make the model add up** (Session 13) | 5 of 5 runs stated it verbatim, and the certification beat that had failed passed |
 
-**Where.** Sessions 5 through 10; the table above is assembled from each
+**Where.** Sessions 5 through 13; the table above is assembled from each
 session's measurement section.
+
+**Six applications, six holds, and no exceptions.** That is the whole of the
+evidence for the advice below, and it is worth saying that the sixth was chosen
+because the fifth worked: Session 12's certification failed one beat on a
+derived total, named the fix in its own report, and Session 13 applied the same
+technique one level out and the beat passed. The failures that remained in that
+final pass were, every one of them, numbers no tool states — a ratio the model
+compared and a list length it counted. The rule is not "give the model good
+instructions about arithmetic". It is **put the number in the payload.**
 
 **What the MVP should do.** When a model misbehaves, ask first whether the
 system can be arranged so the misbehaviour is impossible or is caught after the
@@ -440,6 +451,19 @@ the wrong headings with their real login gaps printed beside them. It is the
 fifth instance of "let the tool compute it", and like the four before it, it
 held.
 
+The sixth followed immediately, on the same principle one level out. Session
+12's certification pass printed six correct per-program missing-submission
+counts and then closed on "78 missing submissions" for a catalog whose six rows
+sum to 112 — the running total of the first four rows of its own table, stopped
+after four. Session 13 had the rollup tool return `total_sections`,
+`total_enrollment` and `total_missing_submissions` computed from exactly the
+rows it ships, with the docstring saying the totals are authoritative and must
+never be re-derived. Five runs afterwards stated the total verbatim, and so did
+the certification beat that had failed. The two numbers that were still wrong in
+that final pass were a ratio the model compared across programmes and the length
+of a skill list it counted itself — neither of which any tool states, which is
+the same sentence as the fix.
+
 Where a derived number is unavoidable, budget for reasoning mode on that path
 and measure it — but measure more than accuracy and latency. Reasoning mode
 changes how eagerly a model calls tools, and if anything you care about depends
@@ -611,6 +635,41 @@ skill is a change to the agent loop, not a change to the stylesheet, and it
 needs measuring on the beats that depend on a tool call actually being made —
 not only on the beats whose prose it was meant to improve.
 
+**What we did with that measurement is the part worth copying.** The session
+that found it wrote the constraint into the demonstration script: *do not run
+this skill on that beat.* That is a sentence in a document, and a document does
+not stop anybody. The next session deleted one role from one line of the
+registry — the skill is now granted to advisors, deans and adjuncts, and not to
+faculty — and since the only faculty persona is the one whose beat was
+measurably damaged, the dangerous combination stopped being reachable. A caller
+who asks for it now gets a courteous refusal and an amber row instead of a
+degraded answer.
+
+The general form: **a measured behavioural risk should end up in the same
+registry that governs everything else, not in a footnote about how to run the
+demo.** The registry entry is testable, and a test now fails if anyone grants
+the role back. The footnote was not, and nothing would have failed. Note also
+what this did *not* require: no code changed, no prompt changed, and the two
+chat applications were not touched — they hold no roles by design, so hiding the
+switch per role would have put an entitlement decision in a surface, which is
+precisely the thing this architecture refuses to do. The switch may still be
+visible to a caller who cannot use it. The refusal is the enforcement.
+
+**One thing we suspected and could not confirm.** The session that built the
+skill saw a single reply sign the learning-management system's figures with the
+student-record system's marker, and wondered whether writing in a plainer
+register costs citation accuracy. Ten runs of the same question, five with the
+skill on and five with it off, scored on whether every marker named the server
+whose tool supplied that figure: **the distributions were identical** — two
+replies in five correct on both sources, two in five signing both sources'
+figures with one marker, one carrying a single source's figures correctly. The
+skill neither improved nor degraded attribution. The one observation worth
+keeping is the rate itself: on a question joining two systems, two answers in
+five got the provenance wrong regardless of register, which is entry 5's third
+blind spot measured rather than assumed. If citation accuracy matters to your
+users, that is the number to design against, and no amount of style
+configuration will move it.
+
 **The activation taxonomy, which is the part worth stealing.** Every skill has
 to answer one question before anything else: *whose judgement puts this on?*
 Four answers, and each one encodes a different kind of thing.
@@ -636,7 +695,8 @@ cannot be summoned — and they are **audit-stamped**, so the record says which
 skill loaded on which request. The model picks the moment; it never picks the
 menu, and it never picks in secret.
 
-**Where.** Session 12. `config/skills.yaml`,
+**Where.** Session 12 built it; Session 13 scoped it by registry and measured
+the attribution question. `config/skills.yaml`,
 `services/orchestrator/skills.py` (about a hundred and thirty lines, no
 dependency beyond the YAML parser already present), `tests/test_skills.py`.
 
@@ -651,6 +711,9 @@ not two. And ship the kill switch with the feature: ours is one environment
 variable that removes the toggle from both surfaces, stops the field being sent,
 stops it being validated, and leaves no trace in the audit trail — which is what
 let us certify the feature and the absence of the feature in the same session.
+Then, when a skill turns out to hurt something, move the constraint into the
+registry rather than into the runbook: a role removed from a line is enforced
+and testable, and a sentence telling people not to do it is neither.
 
 ---
 

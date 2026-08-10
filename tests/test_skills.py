@@ -5,12 +5,15 @@ exactly one boundary here to test — the boundary on the skill itself — and i
 tested the way every other boundary in this suite is: against the live stack,
 with real tokens, through the same door the surfaces use.
 
-Three cases, and the third is the one that matters most:
+Four cases, and the last is the one that matters most:
 
   * an unknown name is refused, so a caller cannot invent behaviour by asking
-    for it;
-  * a skill whose roles the caller does not hold is refused, so the registry
-    governs who may activate what;
+    for it, and the refusal is amber on the receipts page;
+  * a real persona whose role the skill excludes is refused — since Session 13
+    that is noor, and the exclusion is why demo moment 5 cannot be run in the
+    configuration Session 12 measured as worse;
+  * a token carrying a role the registry has never heard of is refused, the
+    same boundary approached from the other side;
   * an authorized skill is accepted, and the audit row says which skills shaped
     the answer — a reply's register should be as recoverable afterwards as the
     tools behind it.
@@ -39,14 +42,13 @@ from conftest import (
 
 pytestmark = pytest.mark.session2
 
-# The one skill config/skills.yaml declares, granted to all four data roles.
+# The one skill config/skills.yaml declares. Granted to advisor, dean and
+# adjunct — and, since Session 13, not to faculty: see the unauthorized tests
+# below and the comment on the roles line in the registry itself.
 PLAIN_LANGUAGE = "plain_language"
 
-# A role no persona holds and config/registry.yaml grants nothing to. Minted as
-# a real, correctly signed, unexpired token — the same technique test_auth.py
-# uses for its claim-level cases. Nothing is weakened: this token passes
-# signature, issuer, audience and expiry, and is refused on the one thing under
-# test, which is that its roles are not among the skill's.
+# A role no persona holds and config/registry.yaml grants nothing to, for the
+# second unauthorized case below.
 UNGRANTED_ROLE = "registrar"
 
 
@@ -116,18 +118,73 @@ def test_an_unknown_skill_is_refused(
     )
     assert row is not None, "the refusal left no audit row"
     assert row["detail"]["reason"] == "unknown", row["detail"]
+    # The audit page colours a row by detail.decision, so without this key the
+    # refusal reads green and the "refused" chip cannot select it. Session 12
+    # deviation 6, found after that session's measurement began and fixed here.
+    assert row["detail"].get("decision") == "refused", (
+        f"a refused skill must render amber on the audit page: {row['detail']}"
+    )
 
 
-def test_a_skill_the_callers_roles_do_not_cover_is_refused(
+def test_a_real_persona_whose_role_the_skill_excludes_is_refused(
     session2_stack: None, skills_enabled: bool, http: httpx.Client,
-    mint: Callable[..., str],
+    token_for: Callable[[str], str],
 ) -> None:
     """The registry governs who may activate what, checked against the token.
 
-    config/skills.yaml grants plain_language to the four data roles, so every
-    persona holds it. This caller's token is valid in every other respect and
-    carries a role the registry has never heard of — which is exactly the shape
-    of a real caller who is not entitled to a skill.
+    noor's own token, and the persona matters. Session 12 measured
+    plain_language on demo moment 5 — noor asking about a section she does not
+    teach — and found it made the model readier to answer than to fetch, so the
+    tool-layer refusal that beat exists to produce went missing in two of five
+    runs. Session 12 wrote the constraint into DEMO_VERIFICATION.md; Session 13
+    dropped `faculty` from the skill's roles, which turns a documented
+    constraint into one the registry enforces. This test is what says so, and
+    it is the one that would fail if somebody put the role back.
+
+    Until Session 13 no persona could be unauthorized for this skill — it was
+    granted to all four data roles — so the boundary was only reachable with a
+    minted token carrying an invented role. That case is worth keeping and
+    stands below; this one is the boundary as a real caller meets it.
+    """
+    if not skills_enabled:
+        pytest.skip("SKILLS_ENABLED is off on the running orchestrator")
+    # Audit timestamps are written to whole seconds, so a `since` taken a
+    # moment before the request can still be later than the row it is looking
+    # for. Two seconds of slack, the same as tests/test_auth.py.
+    since = utcnow() - timedelta(seconds=2)
+    response = post(http, token_for("noor"), "Which occupations are growing fastest?",
+                    [PLAIN_LANGUAGE])
+    assert response.status_code == 200, response.text[:300]
+    body = response.json()
+    assert PLAIN_LANGUAGE in body["reply"], (
+        f"the refusal should name the skill it refused: {body['reply']!r}"
+    )
+    assert body["tools_used"] == [], body["tools_used"]
+
+    row = wait_for_event(
+        http,
+        lambda event: (event.get("event") == "skill_refused"
+                       and (event.get("detail") or {}).get("skill") == PLAIN_LANGUAGE),
+        since=since,
+    )
+    assert row is not None, "the refusal left no audit row"
+    assert row["detail"]["reason"] == "not_authorized", row["detail"]
+
+
+def test_a_role_the_registry_has_never_heard_of_is_refused(
+    session2_stack: None, skills_enabled: bool, http: httpx.Client,
+    mint: Callable[..., str],
+) -> None:
+    """The same boundary from the other side: a role nothing grants anything to.
+
+    The token is real — correctly signed, unexpired, correctly audienced, the
+    same technique tests/test_auth.py uses for its claim-level cases — and it is
+    refused on the one thing under test, which is that its roles are not among
+    the skill's. Nothing is weakened anywhere.
+
+    Kept alongside the noor case above because the two fail differently: this
+    one breaks if `resolve` ever defaults an unrecognised role to permitted;
+    that one breaks if somebody grants the skill back to faculty.
     """
     if not skills_enabled:
         pytest.skip("SKILLS_ENABLED is off on the running orchestrator")

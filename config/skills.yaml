@@ -27,7 +27,16 @@
 
 skills:
   - name: plain_language
-    roles: [advisor, dean, faculty, adjunct]
+    # faculty is deliberately absent (Session 13). Session 12 measured this
+    # skill on demo moment 5 — the beat where a faculty member is refused
+    # another instructor's section — and the tool-layer refusal fell to 3 of 5
+    # runs from 4 of 4, because an instruction block sitting immediately before
+    # the question makes the model readier to answer than to fetch. Session 12
+    # wrote that down as a constraint in DEMO_VERIFICATION.md; a documented
+    # constraint is a hope. noor is the only faculty persona and moment 5 is
+    # her beat, so dropping the role makes the measured-dangerous combination
+    # unreachable by registry rather than by documentation.
+    roles: [advisor, dean, adjunct]
     activation: user
     description: "Plain-language mode — short sentences, everyday words, no jargon"
     instructions: |

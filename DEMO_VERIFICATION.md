@@ -40,23 +40,170 @@ and any refusal are untouched by design — and that the registry names which
 roles may switch it on, checked against the caller's token in the orchestrator,
 never in the app.
 
-**Two constraints, and the second one matters.**
+**Two constraints, and the second one is now enforced rather than written down.**
 
 1. The toggle is **off by default** and resets on every new chat session, so the
    certified behaviour is what a fresh demo gets. `SKILLS_ENABLED=false` in
    `.env` removes it from both surfaces entirely.
-2. **Do not run demo moment 5 with the toggle on.** Session 12 measured it: with
-   the skill active, noor's second turn produced the tool-layer refusal in 3 of
-   5 runs against 4 of 4 with it off, the groundedness guard fired six times in
-   ten replies against twice in eight, and one run ended in the flat "I can't
-   ground an answer to that" sentence. An instruction block sitting immediately
-   before the question makes the model readier to answer than to fetch, and what
-   it displaces first is the tool call the refusal beat depends on. The
-   plain-language beat is a prose beat; keep it on prose.
+2. **Demo moment 5 cannot be run with the toggle on**, because noor cannot
+   activate the skill at all. Session 13 removed `faculty` from
+   `plain_language`'s roles in `config/skills.yaml`, so a faculty caller asking
+   for it is refused by the registry — courteously, with an amber `skill_refused`
+   row — and the request stops before the model sees anything. The measured
+   numbers are the reason: Session 12 ran moment 5 five times with the skill
+   active and noor's second turn produced the tool-layer refusal in 3 of 5 runs
+   against 4 of 4 with it off, the groundedness guard fired six times in ten
+   replies against twice in eight, and one run ended in the flat "I can't ground
+   an answer to that" sentence. An instruction block sitting immediately before
+   the question makes the model readier to answer than to fetch, and what it
+   displaces first is the tool call the refusal beat depends on.
+
+   The switch may still render in noor's settings panel — the surfaces hold no
+   roles by design and decide nothing (SPEC §4.9), so hiding it per role would
+   put an entitlement decision in a Chainlit app. Turning it on as noor produces
+   the refusal, not an answer, and that refusal is the guarantee.
+   `tests/test_skills.py::test_a_real_persona_whose_role_the_skill_excludes_is_refused`
+   is what fails if anyone grants the role back.
 
 ---
 
-# Session 12 verification — the current record, and the freeze certification
+# Session 13 verification — the current record, and the final certification
+
+Three changes were made this session and all three were verified. One pass by
+the demo-verifier agent, **rows 7804–7901**, 98 rows, 2026-08-10
+00:49:46–00:56:57Z, driven through the gateway's `/chat` with real RS256 persona
+tokens; step 4 ran `./scripts/demo_bypass.sh` unmodified; step 5b carried step
+5a's rendered prose back as client-held history. Every figure was recomputed
+from `data/*.db` rather than quoted. Nothing in the repository was changed
+during the pass.
+
+**Verdict: 9 of 12 beats pass. The three failures are all older than this
+session and none of them is in a beat this session touched.**
+
+| Beat | Result | Note |
+|---|---|---|
+| 1 | PASS | 25 / 9 / 8 exact, group membership right, `[colleague]` |
+| **2** | **FAIL** | Two defects, both old: a derived ratio stated wrong, and three paragraphs of model scratchpad before the answer |
+| **2b** | **FAIL** | Register is a clear improvement and row **7828** carries `["plain_language"]` — but it repeats step 2's derived-ratio error |
+| 3 | PASS | Gate refusal row 7830, zero tool rows; all 36 occupation cells exact |
+| 4 | PASS | `tools that actually ran: none`; mcp-colleague refusal row **7837** verbatim |
+| 5a | PASS | CYB-310-A, eight students, every value exact |
+| 5b | PASS | Tool called, refused, spec sentence verbatim at the tool layer (row **7846**), relayed as a faithful paraphrase naming the section |
+| **5c** | **PASS — the fix this session made** | "Across 20 sections and 165 enrolled students, **112** submissions are missing this week. [canvas]" All 18 cells and all 6 missing counts exact |
+| 6 | PASS | Every seat count, prereq, term and grade exact; CS-460 correctly blocked |
+| **7** | **FAIL** | The synthesis is right — 8/8, 3/6, 3/7, 0/7 — and one denominator is not: "0 of 5" for Financial Analysts, which carries 6 skills, named in the same line |
+| 8 | PASS | Six distinct `get_course_outcomes` calls (rows 7881–7886) before any catalog-wide claim; every adjacency exact |
+| 9 | PASS | Audit page serves, every beat on the record |
+| 10 | PASS | 401 at all six token-validating services independently |
+| **amber check** | **PASS** | Row **7895**: `skill_refused` carrying `"reason": "unknown"` **and** `"decision": "refused"` — the key that makes it amber |
+
+Standing checks: **23** model calls with cache telemetry, minimum
+`prompt_cache_hit_tokens` **896**, **zero** calls with zero hits. All four
+spec-fixed refusal strings verbatim at the tool layer (rows 7837, 7846, 7897,
+7898, 7899, 7900), plus the faculty/dean asymmetry proven on an **identical
+`args_hash 8dcd893de78e`** — row 7900 noor refused, row 7901 kim served, same
+call, different token, decided in mcp-canvas. **Zero** dropped audit events in
+the window. `tools_used ⊆ tools_offered` on **11 of 11** `answer_returned` rows,
+`unoffered_calls` present and empty on every one. Guard ledger: **2 fires, 2
+regenerations, 0 declines** (7822 and 7852, both kim, both citing a server the
+request never reached). `active_skills` discipline: row 7828 carries
+`["plain_language"]`, the other **ten** carry `[]`.
+
+## The three failures, and whose they are
+
+**None of the three is in a beat this session touched**, and the rule this
+session ran under is that such a failure is reported against its session of
+origin rather than fixed after measurement began.
+
+- **Steps 2 and 2b — the same derived ratio, stated wrong in both arms.** Both
+  replies say CS-BS has "the highest missing-to-enrollment ratio of any
+  program". Recomputed: DAT-MS is 24/29 = 0.828, CS-BS is 16/20 = 0.800. Every
+  figure either reply takes *from* a tool is exact; the wrong number is one no
+  tool states. **The skill did not cause it** — step 2, the same question with
+  the toggle off, makes the identical error — and the skill did not catch it.
+  This is `docs/LESSONS.md` entry 9's class, recorded since Session 5.
+- **Step 7 — one wrong denominator.** "0 of 5" for Financial Analysts, whose
+  missing-skill list in the same line names all six. True figure 0 of 6. This is
+  Session 9 finding 9.2 and Session 11 §5.3's second instance, exactly: same
+  beat, same shape, a length the model counts itself.
+- **The scratchpad leak, on 3 of 12 beats** (2, 7, 8), all kim's, all
+  multi-tool syntheses. Session 12 recorded it as W1 and Session 9 as the
+  narration leak; this pass scored it as a failure on step 2 rather than a wart,
+  which is a stricter reading of the same behaviour, not a regression. Worth
+  noting: **step 2b, the same question with the skill on, produced no preamble
+  at all** — the one thing the skill reliably fixes.
+
+## What this session's three changes did
+
+**The rollup total is fixed, and it held five times before the certification as
+well as in it.** `get_program_engagement_rollup` now ships `total_sections`,
+`total_enrollment` and `total_missing_submissions` computed from the rows it
+returns. Step 5c was measured ×5 as kim before the pass (rows 7626–7660): the
+cross-program total was stated verbatim from the tool in **5 of 5** runs — 112,
+alongside 20 sections and 165 enrolled — and all 24 per-program cells were exact
+in every run. Session 12's "78 missing submissions" is gone. Median latency
+11.7s; five guard fires, five regenerations, zero declines, zero zero-hit calls.
+
+**The skill is registry-scoped, not documentation-scoped.** `faculty` is out of
+`plain_language`'s roles, so noor asking for it through the gateway gets the
+refusal and an amber row rather than an answer — confirmed live, and pinned by
+two tests.
+
+**A refused skill is amber on the receipts page.** One key, `"decision":
+"refused"`, in the orchestrator's `skill_refused` audit call. The appended beat
+above confirms both the key and the viewer rule that reads it.
+
+## The attribution measurement — the skill does not make citations worse
+
+Session 12's W2 wondered whether `plain_language` degrades citation attribution,
+having seen one reply sign canvas figures `[colleague]`. Ten runs say no. Kim's
+step-2 question, five runs with the toggle off (rows 7661–7752) and five with it
+on (rows 7753–7803), each reply scored on whether every marker names the server
+whose tool supplied that figure — colleague for headcount, GPA and the
+quiet-over-ten-days share; canvas for sections, weekly login rate, missing
+submissions and the three totals.
+
+| Attribution | Toggle off | Toggle on |
+|---|---|---|
+| Both servers cited, every marker correct | **2 of 5** | **2 of 5** |
+| Both servers' figures, all signed with one marker | **2 of 5** | **2 of 5** |
+| Canvas-only content, correctly signed | 1 of 5 | 1 of 5 |
+| Guard fires / declines | 1 / 0 | 1 / 0 |
+| Median latency | 15.5s | **11.5s** |
+
+The distributions are identical. **W2 was one draw of a coin that lands the same
+way with the skill off**, and the real finding is the rate: on this beat, two
+replies in five sign both servers' figures with a single marker, in both arms.
+Nothing was changed in response — the measurement was the deliverable.
+
+One observation, not a finding: the toggle-on arm produced one invented figure
+("28.7% of its assignments are missing, 12 out of what appears to be about 42
+total" — no tool returns 42 or 28.7%). One instance in ten replies, and the
+toggle-off arm produced none, which is too thin to call.
+
+## Patter for the plain-language beat, if you run it
+
+Say the quiet part out loud: *"the skill changes the words, not the facts, and
+we measured that — same figures, same citations, same role scoping, and no
+better or worse at saying which system each number came from."* It is a
+stronger line than claiming an improvement the data does not show.
+
+## Seed-data assessment
+
+**No change was made and none is needed for the beats this session touched.**
+The verifier raises one for the MVP's attention rather than the demo's:
+BUS-201-A holds 2 students and BUS-201-B holds 1, so when kim is shown serving
+the section noor was refused, the payoff is a two-row roster. SPEC §5 asks for
+BUS-201-B to be "visibly not" healthy and at n=1 that is one person, not a
+signal. Raising both to roughly 12–18 students would fix it — and would move the
+20 / 165 / 112 totals pinned throughout this section, so it is a re-seed plus a
+recomputation, not a one-line change. Not applied.
+
+This section supersedes the Session 12 record below it.
+
+---
+
+# Session 12 verification — superseded by Session 13 above
 
 One pass, run by the demo-verifier agent against the live compose stack with all
 ten services healthy, **rows 7153–7250**, 2026-08-10 00:10:42–00:14:19Z.

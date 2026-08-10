@@ -80,6 +80,28 @@ class ProgramEngagement(BaseModel):
     missing_submissions: int
 
 
+class ProgramEngagementRollup(BaseModel):
+    """The per-program rows, with the cross-program totals stated.
+
+    Same reason as `student_count` above, and as mcp-colleague's membership
+    lists, one level out: the demo reads a total aloud and the model was adding
+    it up itself. Session 12's certification pass printed six correct
+    missing-submission counts and then "78 missing submissions" for a catalog
+    whose true total is 112 — the running sum of the first four rows of its own
+    table, stopped after four.
+
+    Each total is computed from exactly the rows in `programs`, so a total and
+    the rows beside it cannot disagree. There is deliberately no total for
+    `pct_logged_in_this_week`: a share is not summable, and a field that looked
+    like one would invite the error this class exists to prevent.
+    """
+
+    total_sections: int
+    total_enrollment: int
+    total_missing_submissions: int
+    programs: list[ProgramEngagement]
+
+
 # "This week" means a login within the last seven days. One definition, used by
 # every tool here, so the section view and the rollup cannot disagree.
 ACTIVE_WITHIN_DAYS = 7
@@ -165,8 +187,8 @@ async def get_section_engagement(section_id: str, ctx: Context) -> SectionEngage
 
 
 @mcp.tool()
-async def get_program_engagement_rollup(ctx: Context, program_code: str | None = None) -> list[ProgramEngagement]:
-    """Current-week engagement aggregated per program, or for one program if program_code is given."""
+async def get_program_engagement_rollup(ctx: Context, program_code: str | None = None) -> ProgramEngagementRollup:
+    """Current-week engagement aggregated per program, or for one program if program_code is given. programs holds one row per program; total_sections, total_enrollment and total_missing_submissions are the totals across exactly those rows. Those three totals are authoritative: state them as this result gives them, and never re-derive one by adding the rows up."""
     claims = caller(ctx)
     async with audited("get_program_engagement_rollup", claims, {"program_code": program_code}):
         require_role(claims, "dean", "get_program_engagement_rollup")
@@ -189,7 +211,14 @@ async def get_program_engagement_rollup(ctx: Context, program_code: str | None =
                 program_code=code, sections=counts[code], enrollment=enrollment,
                 pct_logged_in_this_week=pct_active, missing_submissions=missing,
             ))
-        return rollup
+        # Summed from the rows just built, not from the query again: the total
+        # has to be the total of what is shipped, whatever the filter did.
+        return ProgramEngagementRollup(
+            total_sections=sum(program.sections for program in rollup),
+            total_enrollment=sum(program.enrollment for program in rollup),
+            total_missing_submissions=sum(program.missing_submissions for program in rollup),
+            programs=rollup,
+        )
 
 
 app = BearerAuthMiddleware(mcp.streamable_http_app())

@@ -393,6 +393,12 @@ async def chat(
                 "skill_refused", sub=claims.sub, roles=claims.roles,
                 detail={"skill": refusal.skill, "reason": refusal.reason,
                         "requested": request.active_skills,
+                        # The viewer colours a row by detail.decision, and
+                        # somebody was told no. Without this key a refusal
+                        # renders green and the "refused" chip cannot select
+                        # it — a receipt that reads as a success (Session 12
+                        # deviation 6).
+                        "decision": "refused",
                         "latency_ms": round((time.perf_counter() - started) * 1000, 1)},
             )
             return ChatReply(reply=refusal.message, tools_used=[], unoffered_calls=[])
