@@ -969,3 +969,27 @@ not:
   aggregate over three students.
 - Anything about accuracy at the volume a real catalogue implies. Our data is
   300 students and 12 occupations, tuned so the joins are provable by eye.
+- **That the role boundaries we drew are the ones an institution would draw.**
+  The advisor role holds no LMS tools at all, so an advisor cannot see
+  current-week engagement for her own advisees — which is close to the first
+  thing a real advisor would ask for. We drew advisor → student record and
+  faculty/dean → LMS because it makes the access contrast unmissable in fourteen
+  minutes, not because it is the right production line. Note what the likely
+  production answer costs: *an advisor sees engagement for her assigned advisees
+  and nobody else's* is a **per-row** rule, and every enforcement rule the POC
+  proves is per-tool or per-role. That is a different shape, and it is the shape
+  `ARCHITECTURE.md`'s row-level security section exists for.
+- **Where a fact lives, against where it came from.** Demo moment 1 answers
+  "which students are struggling" entirely out of the student record: grade
+  flags, days since last login, GPA. Two of the five flag texts — "no submissions
+  in 2 weeks" and "missing 3 assignments", 29 of the 74 flags in the seed —
+  describe LMS activity that is *stored* on the SIS record. That is realistic
+  rather than a shortcut: early-alert products do exactly this, and the citation
+  is honest, because the harness names the system it actually queried. But two
+  things follow. The beat reads like a cross-source answer and is not one — the
+  genuine joins are moments 5 through 8. And a citation in this design names
+  **custody, not origin**. If provenance is going to carry any weight in an MVP —
+  and for a FERPA story it will — it has to distinguish which system a fact came
+  from from which system it is about. Entry 5's groundedness guard checks only
+  the first, which is also why it cannot catch the wart where canvas figures were
+  cited `[colleague]`.
