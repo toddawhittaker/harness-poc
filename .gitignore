@@ -1,7 +1,41 @@
 .env
-data/
+
+# data/ holds three different kinds of thing and they are treated differently.
+# Note this is `data/*` rather than `data/`: git does not descend into an
+# excluded directory, so a trailing-slash rule would make the un-ignore lines
+# below do nothing.
+data/*
+
+# The four seed databases ARE committed, so a clone runs without a seed step.
+# They are deterministic output of scripts/seed.py (random.seed(398)) and total
+# about 240 KB. Re-running the seed may produce a byte-level diff without a
+# logical one — SQLite page allocation is not stable across rebuilds — so check
+# `uv run scripts/seed.py` output rather than the diff when you change seeding.
+!data/colleague.db
+!data/canvas.db
+!data/kuali.db
+!data/labor.db
+
+# data/jwt_private.pem is NEVER committed. It is the RSA-2048 key identity-stub
+# signs every harness token with; publishing it would let anyone mint a valid
+# token for any persona, which is the one claim this POC exists to make.
+# identity-stub regenerates it on first boot if it is absent
+# (services/identity-stub/app.py::load_or_create_key), so nothing is lost.
+#
+# data/audit.db is not committed either. It is a runtime log rewritten on every
+# request, the audit service creates it empty on boot with CREATE TABLE IF NOT
+# EXISTS, and committing a SQLite binary that changes on every demo run would
+# dirty the tree constantly and store a full copy per commit.
+
 __pycache__/
 *.pyc
 .venv/
 *.egg-info/
 .pytest_cache/
+
+# Chainlit runtime state, per app.
+apps/*/.files/
+apps/*/.chainlit/translations/
+
+# Local Claude Code settings, which are per-machine and may hold local paths.
+.claude/settings.local.json

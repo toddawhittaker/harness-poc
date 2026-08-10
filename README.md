@@ -1,0 +1,210 @@
+# harness-poc
+
+A working miniature of an institution-owned AI layer — a *harness* — that sits
+above a university's real systems, answers questions in plain language for people
+in different roles, and enforces the institution's access rules at every step.
+
+It is a proof of concept, built in three days, and it exists to make one
+architectural argument checkable rather than plausible: **the user's own identity
+travels with every request, end to end, and authorization is checked
+independently at multiple layers.** The AI never acts as an all-seeing service
+account, and no model's judgment is ever the security boundary.
+
+The full specification is [`SPEC.md`](SPEC.md). The production design this
+miniature is drawn from is [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+## What it proves
+
+1. **Multiplexing.** Two visually distinct chat applications drive one
+   always-live harness service. The surfaces hold no logic and no roles.
+2. **Role-based access control, enforced in layers.** The same question asked by
+   an advisor and by a dean returns role-appropriate answers; an adjunct is
+   refused politely at the gate. Then the demonstration bypasses the gate
+   entirely — `curl` straight at the orchestrator with a low-privilege token —
+   and the request is *still* refused, by the tool server, on the caller's own
+   token.
+3. **Synthesis.** One question is answered by joining independent governed
+   sources — a student record system, a learning management system, a curriculum
+   catalogue and labour-market data — against a shared controlled vocabulary,
+   with citations to each source.
+4. **Receipts.** An audit viewer shows every request: who asked, in which role,
+   which tools ran, what was refused.
+
+## What is real and what is fake
+
+This distinction is the whole point, so it is stated plainly rather than buried.
+
+**Fake:** the people, the data, and the upstream systems. Five demo personas,
+three hundred generated students, four mock institutional servers. Nobody in this
+repository exists.
+
+**Real:** every mechanism the architectural claim depends on. Tokens are
+RS256-signed JSON Web Tokens, verified by signature, issuer, audience and expiry
+independently at six services. Tools are reached over the Model Context Protocol
+(MCP) with streamable HTTP transport. Authorization is decided inside the tool
+servers, per request, against the caller's token — never upstream, never by the
+model. Every decision is audited.
+
+Anything that would invalidate the architectural claim if faked is not faked.
+
+## Quick start
+
+Requires Docker Compose v2, Python 3.12 and [uv](https://docs.astral.sh/uv/).
+You need an API key for an OpenAI-compatible model endpoint; the defaults point
+at DeepSeek.
+
+```bash
+cp .env.example .env          # then set DEEPSEEK_API_KEY
+docker compose up --build
+```
+
+That is enough. The four seed databases are committed, so no seeding step is
+needed for a first run.
+
+| Surface | URL | What it is |
+|---|---|---|
+| Advisor Workspace | http://localhost:8080 | Chat application, warm theme |
+| Executive Insights | http://localhost:8081 | Chat application, cool theme |
+| Audit viewer | http://localhost:8030 | Every request, refusal and tool call, polling every two seconds |
+
+Sign in to **either** application as any persona — access follows the token's
+roles, not the application, and proving that is part of the demonstration. The
+password is `demo` for all five.
+
+| Persona | Name | Roles |
+|---|---|---|
+| `dana` | Dana Whitfield | advisor |
+| `kim` | Kim Okafor | dean |
+| `noor` | Noor Haddad | faculty (teaches two sections) |
+| `pat` | Pat Reyes | adjunct — public data only |
+| `sam` | Sam Lindqvist | advisor **and** dean |
+
+To re-generate the fake data:
+
+```bash
+uv run scripts/seed.py
+docker compose restart mcp-colleague mcp-canvas mcp-kuali mcp-labor
+```
+
+The restart is not optional. The servers hold the deleted database files open,
+so without it you keep reading the old data.
+
+## The demonstration
+
+The fourteen-minute script is [`SPEC.md` §7](SPEC.md). The two beats worth
+knowing about before you read it:
+
+**The bypass** (`scripts/demo_bypass.sh`) mints an adjunct's token and calls the
+orchestrator directly, skipping the gateway and its router — "suppose someone
+sweet-talks or skips the AI gate." The tool server refuses anyway, and the
+refusal lands amber on the audit page. One command, and it is deterministic
+because a script makes the call rather than a model.
+
+**The faculty/dean asymmetry.** A faculty member asks about a section she does
+not teach and is refused by name; a dean asks the identical question and is
+served. Same call, same argument hash, different token, decided inside the tool
+server.
+
+## How it fits together
+
+The token is passed through at every hop, and every service validates it
+independently rather than trusting the one before it.
+
+```
+  Chainlit app          gateway              orchestrator            MCP servers
+  (:8080 / :8081)       (:8000)              (:8010)                 (:8021-8024)
+        |                  |                      |                       |
+        |  Bearer token    |    Bearer token      |     Bearer token      |
+        +----------------->+--------------------->+---------------------->+
+        |                  |                      |                       |
+        |             verify_token           verify_token            verify_token
+        |             router triage          registry filtering      ENFORCEMENT
+        |             (not a judge)          (hides tools)           (decides)
+        |                  |                      |                       |
+        +------------------+----------------------+-----------------------+
+                                     |
+                                  audit (:8030)
+```
+
+**Authorization decisions live only in the MCP servers.** The gateway's router is
+triage — it classifies the question and refuses the obviously out-of-scope
+politely — and it fails *open* on a parse error, which is safe precisely because
+it is not the enforcement layer. The orchestrator filters the tool registry so a
+model never sees a tool its caller cannot use, but that is defence in depth, not
+the boundary.
+
+Services: `identity-stub` (:8001) stands in for an enterprise identity provider
+and mints the RS256 tokens; `gateway` (:8000) is the front door; `orchestrator`
+(:8010) is the always-live harness wrapping a Pydantic AI agent; `mcp-colleague`
+(:8021), `mcp-labor` (:8022), `mcp-canvas` (:8023) and `mcp-kuali` (:8024) are
+the four governed tool servers; `audit` (:8030) collects the receipts. All ports
+bind to `127.0.0.1` only.
+
+The orchestrator routes an extended-reasoning budget per `(intent, role)`: the
+dean's synthesis questions get it, everything else does not. `docs/LESSONS.md`
+entry 9 explains why, with the measurements.
+
+## Tests
+
+The negative-authorization suite is the mandatory one. It uses real tokens from
+identity-stub — nothing is mocked, weakened or bypassed, in tests or anywhere
+else.
+
+```bash
+docker compose up -d          # the stack must be running
+uv run pytest tests/ -q       # 162 tests
+```
+
+It covers: a missing token rejected at all six token-validating services
+independently; expired tokens, tampered signatures and wrong audiences rejected;
+an adjunct's valid token refused at the tool layer; an advisor refused for a
+student who is not theirs; and the faculty/dean asymmetry proven at the tool
+server on an identical call.
+
+## Where to read next
+
+| File | What it holds |
+|---|---|
+| [`SPEC.md`](SPEC.md) | The build specification, including the demo script (§7) and the honest shortcuts (§11) |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | The production design this is a miniature of |
+| [`DEMO_VERIFICATION.md`](DEMO_VERIFICATION.md) | Every certification pass, newest first. The current one is Session 17 |
+| [`docs/LESSONS.md`](docs/LESSONS.md) | Thirteen things the build taught us, each with the measurement behind it |
+| [`reports/`](reports/) | Session-by-session build reports, with the commands run and their output |
+| [`SESSION_REPORT.md`](SESSION_REPORT.md) | The most recent session's report, before it is archived into `reports/` |
+
+`docs/LESSONS.md` is the most portable part of this repository. It is what
+seventeen sessions of measuring the same defects produced, and the strongest
+finding in it is that changes making a bad outcome *impossible* held every time,
+while changes *asking* a model not to produce one decayed, moved, or reappeared
+in a new shape.
+
+## Known honest shortcuts
+
+Say these out loud rather than hiding them; `SPEC.md` §11 has the full list.
+Token pass-through stands in for a proper on-behalf-of token exchange. Chat
+history is held by the client, which keeps the harness stateless and is also the
+structural cause of one defect class (`docs/LESSONS.md` entry 7). There are no
+writes, no small-cell suppression, and no TLS between containers — the tunnel
+terminates TLS.
+
+## If you deploy this anywhere public
+
+Two things matter, and neither is theoretical.
+
+**Set real Chainlit cookie secrets.** `CHAINLIT_AUTH_SECRET_ADVISOR` and
+`CHAINLIT_AUTH_SECRET_EXEC` fall back to defaults that are published in
+`docker-compose.yml`. Those defaults are fine on localhost and nowhere else: a
+public tunnel plus a known cookie secret is a forgeable login. They sign each
+application's own session cookie and have no bearing on the harness tokens.
+
+**`data/jwt_private.pem` is a real signing key and is not in this repository.**
+identity-stub generates it on first boot if it is absent. Do not commit one:
+publishing it would let anyone mint a valid token for any persona, which is
+precisely the claim this POC exists to make.
+
+The optional Cloudflare tunnel profile is `docker compose --profile tunnel up -d`,
+with ingress documented in [`tunnel/config.yml`](tunnel/config.yml).
+
+## Licence
+
+MIT — see [`LICENSE`](LICENSE).

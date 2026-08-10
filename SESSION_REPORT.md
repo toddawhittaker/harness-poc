@@ -590,3 +590,107 @@ Two documents plus this file. It is the final commit of the build.
 5. **Everything is committed.** `main` carries the archive move `ec76641` and the
    commit following this report. Nothing is left uncommitted and no branch holds
    unmerged work — `session-16-experiment` is an ancestor of `main`.
+
+---
+
+## 12. After the certification: preparing the repository for a public remote
+
+This work followed the closing commit `8759266` and **touched no code and no
+certified path** — the acceptance check `git diff --exit-code services/ libs/
+tests/ config/ apps/ scripts/` still passes, so nothing in §5 is affected.
+
+### 12.1 What was checked before anything was changed
+
+The whole commit history was scanned for secrets rather than assumed clean.
+**`.env`, `data/` and `.venv` have been gitignored since the root commit and were
+never tracked**, and no file matching `*.pem`, `*.key` or a secret-shaped name has
+ever been added:
+
+```
+$ git log --all --oneline --name-only -- .env data/ '*.pem' '*.key'
+(empty)
+
+$ git grep -nIE 'sk-[a-zA-Z0-9]{16,}|BEGIN (RSA |EC )?PRIVATE KEY|ghp_[A-Za-z0-9]{20,}' $(git rev-list --all)
+(only tests/test_auth.py's deliberate unsigned fixture: kid "fake", sub "nobody")
+```
+
+`tunnel/config.yml` carries a `<domain>` placeholder rather than a real zone, and
+the only IP addresses anywhere in tracked files are Docker bridge addresses
+(`172.20.0.x`) quoted in two reports. **Nothing needed purging from history.**
+
+### 12.2 The three files in `data/`, treated three different ways
+
+`data/` had been ignored wholesale. It holds three kinds of thing and they are no
+longer treated alike:
+
+| File | Size | Decision |
+|---|---|---|
+| `colleague.db`, `canvas.db`, `kuali.db`, `labor.db` | 240 KB total | **Committed.** Deterministic output of `scripts/seed.py` (`random.seed(398)`); committing them means a clone runs without a seed step |
+| `audit.db` | 1.9 MB, 9,866 rows | **Still ignored.** It is a runtime log rewritten on every request, the audit service creates it empty on boot with `CREATE TABLE IF NOT EXISTS`, and a SQLite binary that changes every demo run would dirty the tree constantly and store a full copy per commit — it would have roughly doubled a 2.2 MB repository in one commit |
+| `jwt_private.pem` | RSA-2048, mode 0600 | **Never committed, and the rule is now written into `.gitignore` with its reason.** It is the key identity-stub signs every harness token with; publishing it would let anyone mint a valid token for any persona, which is the one claim this POC exists to make. `load_or_create_key()` regenerates it on first boot if absent, so nothing is lost by excluding it |
+
+The `.gitignore` rule is `data/*` rather than `data/`, because git does not
+descend into an excluded directory and a trailing-slash rule would make the
+un-ignore lines inert. Verified rather than assumed:
+
+```
+$ git add -An data/
+add 'data/canvas.db'   add 'data/colleague.db'   add 'data/kuali.db'   add 'data/labor.db'
+
+$ git check-ignore -v data/jwt_private.pem data/audit.db
+.gitignore:7:data/*  data/jwt_private.pem
+.gitignore:7:data/*  data/audit.db
+```
+
+One caveat recorded for whoever changes seeding: re-running `scripts/seed.py` can
+produce a byte-level diff on these files without a logical one, because SQLite
+page allocation is not stable across rebuilds. Check the seed script's own
+`verify()` output rather than the diff.
+
+### 12.3 What was added
+
+**`README.md`** — the repository had no entry point. It states what the harness
+is and the one architectural claim it exists to make, the four things it proves,
+an explicit *what is real and what is fake* section, a quick start, the persona
+table, a diagram of the token pass-through with the note that authorization
+decisions live only in the MCP servers, the test command and what the suite
+covers, a reading map, the honest shortcuts, and two deployment warnings — the
+published Chainlit cookie-secret defaults and the signing key.
+
+**`LICENSE`** — MIT, chosen by the repository owner.
+
+### 12.4 Two decisions taken by the owner, recorded here
+
+**`ARCHITECTURE.md` ships unchanged**, institution name included, so no
+genericisation was performed and the 23 name occurrences across six files stand.
+
+**History is not being rewritten.** I recommended against both a `filter-repo`
+pass and a squash, for a reason worth keeping on the record: **twenty real commit
+SHAs are cited as evidence inside the tracked reports** — `ec76641`, `e4a7196`,
+`c656319`, `dfe07b8` and sixteen others, all of which resolve today. Any rewrite
+changes the root commit and therefore every SHA downstream, and repairing the
+citations is circular, because editing the documents changes the trees and so the
+SHAs again. Rewriting history would break precisely the evidence chain these
+reports exist to provide. The commit graph is also worth keeping for its own
+sake: `c656319` reverting the Session 16 experiment and `e4a7196` reinstating it
+is a record Session 16 left deliberately.
+
+### 12.5 Open items for the public repository
+
+1. **`docker-compose.yml:280,312` publish the Chainlit cookie-secret defaults.**
+   They are placeholders rather than real secrets, but pushing to a public remote
+   is what makes them public knowledge, and `CLAUDE.md` already warns that a
+   public tunnel plus a known cookie secret is a forgeable login. The fix is the
+   same `${VAR:?...}` treatment `DEEPSEEK_API_KEY` already has. **It was
+   deliberately not made**: the certified stack ran with those defaults, so
+   changing compose now would ship a configuration the certificate does not
+   describe — the exact problem Session 16 created. Make it after the
+   demonstration.
+2. **`SESSION_REPORT.md` is still at the repository root.** `CLAUDE.md` archives
+   it into `reports/` at the next session start; if there is no next session, it
+   should be moved to `reports/session-17.md` by hand so the root holds only
+   entry points.
+3. **The audit trail is not published.** If a browsable set of receipts is wanted
+   without running the stack, the honest artifact is a text export of the
+   certification window (rows 9770–9874) under `docs/`, which diffs and reviews,
+   rather than the 1.9 MB live binary.
