@@ -977,3 +977,87 @@ to the dean's synthesis, and the prompt cache is undisturbed.
 
 `SPEC.md` §1 was amended to match, since it specified a `uv.lock` per service and
 the repository would otherwise contradict its own master document.
+
+### 12.11 Deployment rehearsal on a clean LXC
+
+The deploy path was rehearsed rather than assumed, on a container built from
+nothing on this workstation. **The stack came up healthy and the smoke test
+passed in full**, but only after four exceptions, every one of which is now in
+the README's new *Deploying to a server or LXC* section.
+
+**The rig.** No container hypervisor was installed on this host: no `lxc`, `lxd`
+or `incus`, and no snapd (Pop!_OS 24.04 ships without it). `incus` 6.0.0 was
+installed from apt as the distro-native path, initialised with `incus admin init
+--auto` — a `dir` storage pool and the `incusbr0` bridge on 10.191.85.0/24 — and
+an `images:ubuntu/24.04` container was launched. Docker 29.7.2 and Compose v5.4.0
+were installed inside with the official convenience script.
+
+**Exception 1 — the LXC had no working egress, and the cause was Docker.** DNS
+resolved but every mirror timed out. Docker sets the iptables `FORWARD` policy to
+`DROP`; incus accepts its bridge in a separate *nftables* chain (`fwd.incusbr0`,
+`policy accept`) at the same netfilter hook, and a `DROP` at that hook wins. Two
+rules in `DOCKER-USER` — which Docker does not overwrite — fixed it. A
+contributing cause first: the bridge handed out a ULA IPv6 address the host
+cannot route, and `apt` prefers IPv6, so it stalled before ever trying IPv4;
+`incus network set incusbr0 ipv6.address none` cleared that.
+
+**Exception 2 — Docker does not run in an unprivileged LXC.** With
+`security.nesting=true` alone, `docker run` fails on `open sysctl
+net.ipv4.ip_unprivileged_port_start … permission denied` — and the sysctl is
+demonstrably writable from a shell in the container, so it is runc's *reopen*
+being refused by the nested AppArmor profile, not the permission. Setting
+`lxc.apparmor.profile=unconfined` moved the failure to `Could not check if
+docker-default AppArmor profile was loaded`. A privileged container with the
+mknod and setxattr interceptors works, and gets `overlayfs` rather than a
+fallback storage driver.
+
+**Exception 3 — the `HOST_UID` failure, reproduced exactly as predicted.** A
+fresh clone into `/root` is owned by `root:root` while `.env` carried
+`HOST_UID=1000`. Eight services started; identity-stub died on `PermissionError:
+[Errno 13] Permission denied: '/data/jwt_private.pem'` and audit on
+`sqlite3.OperationalError: unable to open database file`, and everything
+depending on them refused to start. Setting `HOST_UID=0`/`HOST_GID=0` brought all
+ten up healthy. **This is the single most likely first-run failure on a real
+deployment**, and the README now states it twice — in the quick start and in the
+deployment section — because the quick-start wording ("if `id -u` is not 1000")
+was too weak: the rule is that it must match whoever owns the checkout.
+
+**Exception 4 — `--profile tunnel` with an empty `TUNNEL_TOKEN` fails
+unhelpfully.** Nine services stay healthy while `cloudflared` restarts forever on
+*"`cloudflared tunnel run` requires the ID or name of the tunnel"*, which does not
+say "your token is blank". The obvious fix — `${TUNNEL_TOKEN:?…}` — is wrong,
+because compose substitutes variables for the whole file at parse time and it
+would break plain `docker compose up` too. Documented rather than changed.
+
+**The smoke test, after the fixes — all nine checks passed:**
+
+```
+1. gateway with no token                         HTTP 401
+2. six services reject a missing token           401 at gateway, orchestrator, and all four MCP servers
+3. dana (advisor)                                get_my_advisees; 25 advisees, 9 flagged, 8 quiet, 6 both
+4. pat (adjunct), same question                  refused at the gate, tools_used []
+5. pat, public labour data                       list_occupations, answered
+6. noor (faculty), a section she does not teach  tool-layer refusal, audit row 29 amber:
+   "Section BUS-201-A is not among your assigned sections; cross-section views belong to the dean."
+7. kim (dean), cross-source synthesis            list_programs_catalog + list_occupations + get_course_outcomes
+8. audit receipts                                37 rows, 8 auth_failed, 1 refused_at_gate, 1 amber tool refusal
+9. audit viewer                                  HTTP 200, 13,555 bytes, self-contained
+SMOKE TEST: PASS
+```
+
+Build time inside the LXC was **29 seconds for all ten images**, which was
+checked rather than believed — the images are the expected sizes and
+`harness-poc-gateway` imports `fastapi`, `httpx`, `harness_auth` and
+`harness_models` from its venv.
+
+**The host was left as it was found**, which was verified at three points rather
+than asserted: before installing incus, after `incus admin init` created the
+bridge and firewall rules, and after the whole rehearsal. The workstation's own
+ten containers stayed healthy throughout and the gateway answered HTTP 200 each
+time.
+
+**Footprint left behind, for whoever cleans up:** the `incus` package and its
+daemon, an `incusbr0` bridge, a `dir` storage pool, the privileged container
+`harness-lxc`, and two non-persistent `DOCKER-USER` iptables rules. `sudo incus
+delete --force harness-lxc` removes the container; the rest is `sudo apt-get
+remove --purge incus` plus a reboot to drop the firewall rules.

@@ -61,12 +61,71 @@ docker compose up --build
 That is enough. The four seed databases are committed, so no seeding step is
 needed for a first run.
 
-**On Linux, check your user id first.** The containers write into the
-bind-mounted `./data` as `${HOST_UID:-1000}:${HOST_GID:-1000}`, and identity-stub
-generates its signing key there on first boot. If `id -u` is not 1000, set
-`HOST_UID` and `HOST_GID` in `.env` to your own — otherwise identity-stub cannot
-write the key and restarts in a loop. macOS and Windows handle the mapping
-themselves and need nothing.
+**On Linux, set `HOST_UID`/`HOST_GID` to whoever owns the checkout.** The
+containers write into the bind-mounted `./data` as
+`${HOST_UID:-1000}:${HOST_GID:-1000}`, and identity-stub generates its signing
+key there on first boot. If `id -u` is not 1000, set both in `.env` — otherwise
+identity-stub dies with `PermissionError: '/data/jwt_private.pem'` and audit with
+`unable to open database file`, and both restart in a loop. Deploying as root
+means `HOST_UID=0` and `HOST_GID=0`. macOS and Windows map ownership themselves
+and need nothing.
+
+## Deploying to a server or LXC
+
+Verified on a clean Ubuntu 24.04 container: ten images build in about thirty
+seconds and all ten services come up healthy. Only two things are needed on the
+host —
+
+```bash
+curl -fsSL https://get.docker.com | sh     # Docker Engine + the compose v2 plugin
+apt-get install -y git
+```
+
+— then clone, write `.env`, and `docker compose up -d --build`. Four things bite
+in practice, all of them found by actually doing it:
+
+1. **`HOST_UID`/`HOST_GID` again, and this is the one that will get you.** A
+   fresh clone into `/root` is owned by `root:root` while `.env.example` ships
+   `HOST_UID=1000`. Every service then starts and two die on the bind mount. Set
+   both to `0` when deploying as root.
+2. **`--profile tunnel` needs a real `TUNNEL_TOKEN`.** With it empty, the other
+   nine services are healthy and `cloudflared` restarts forever on
+   *"`cloudflared tunnel run` requires the ID or name of the tunnel"*, which does
+   not obviously mean "your token is blank". Compose cannot fail fast on this
+   without also breaking the non-tunnel path, so it is a check to make by eye.
+3. **Docker inside an unprivileged LXC does not work**, and the errors do not say
+   why. With `security.nesting=true` alone, `docker run` fails on
+   `open sysctl net.ipv4.ip_unprivileged_port_start … permission denied`; adding
+   `lxc.apparmor.profile=unconfined` moves it to
+   `Could not check if docker-default AppArmor profile was loaded`. What works is
+   a privileged container:
+
+   ```bash
+   incus config set <name> security.privileged true
+   incus config set <name> security.nesting true
+   incus config set <name> security.syscalls.intercept.mknod true
+   incus config set <name> security.syscalls.intercept.setxattr true
+   ```
+
+4. **If the LXC host also runs Docker, Docker silently blocks the container's
+   network.** Docker sets the iptables `FORWARD` policy to `DROP`; incus and LXD
+   accept their bridge in a separate nftables chain at the same netfilter hook,
+   and a `DROP` there wins. The symptom is that `apt-get update` inside the
+   container times out on every mirror while DNS resolves fine. Fix it in
+   `DOCKER-USER`, which Docker will not overwrite:
+
+   ```bash
+   iptables -I DOCKER-USER -i incusbr0 -j ACCEPT
+   iptables -I DOCKER-USER -o incusbr0 -j ACCEPT
+   ```
+
+   These do not survive a reboot on their own — persist them with
+   `iptables-persistent` or a small systemd unit. Related: if the bridge hands
+   out an IPv6 address the host cannot route, `apt` prefers IPv6 and stalls;
+   `incus network set incusbr0 ipv6.address none` is the quickest cure.
+
+Ports bind to `127.0.0.1` by design, so nothing is published off the box. Reach
+the surfaces through the tunnel, or over an SSH port-forward for a local check.
 
 | Surface | URL | What it is |
 |---|---|---|
