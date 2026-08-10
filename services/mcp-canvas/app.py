@@ -73,11 +73,23 @@ class SectionEngagement(BaseModel):
 
 
 class ProgramEngagement(BaseModel):
+    """One program's current-week engagement, including its missing-work rate.
+
+    `missing_per_student` is `missing_submissions / enrollment` for this row and
+    nothing else. It exists for the same reason as the counts and the totals:
+    the demo compares programs by missing-work burden, and a ratio the model
+    works out from two columns is a ratio it gets wrong. Session 13's
+    certification pass called CS-BS "the highest missing-to-enrollment ratio of
+    any program" in both arms of the same beat, where CS-BS is 16/20 = 0.800 and
+    DAT-MS is 24/29 = 0.828.
+    """
+
     program_code: str
     sections: int
     enrollment: int
     pct_logged_in_this_week: float
     missing_submissions: int
+    missing_per_student: float
 
 
 class ProgramEngagementRollup(BaseModel):
@@ -121,6 +133,19 @@ def activity_stats(rows: list[sqlite3.Row]) -> tuple[int, float, int]:
     active = sum(1 for row in rows if row["last_login_days"] <= ACTIVE_WITHIN_DAYS)
     missing = sum(row["missing"] for row in rows)
     return enrollment, round(100.0 * active / enrollment, 1), missing
+
+
+def per_student(missing: int, enrollment: int) -> float:
+    """Missing submissions per enrolled student, to three decimal places.
+
+    Defined once, here, so the tool and the test that pins it agree on what the
+    number means. A program with no enrolled students has no rate; zero is the
+    honest answer and it keeps the field from being the only nullable one in the
+    row.
+    """
+    if not enrollment:
+        return 0.0
+    return round(missing / enrollment, 3)
 
 
 @mcp.custom_route("/healthz", methods=["GET"])
@@ -188,7 +213,7 @@ async def get_section_engagement(section_id: str, ctx: Context) -> SectionEngage
 
 @mcp.tool()
 async def get_program_engagement_rollup(ctx: Context, program_code: str | None = None) -> ProgramEngagementRollup:
-    """Current-week engagement aggregated per program, or for one program if program_code is given. programs holds one row per program; total_sections, total_enrollment and total_missing_submissions are the totals across exactly those rows. Those three totals are authoritative: state them as this result gives them, and never re-derive one by adding the rows up."""
+    """Current-week engagement aggregated per program, or for one program if program_code is given. programs holds one row per program; total_sections, total_enrollment and total_missing_submissions are the totals across exactly those rows. Those three totals are authoritative: state them as this result gives them, and never re-derive one by adding the rows up. Each row's missing_per_student is that program's missing submissions per enrolled student: any comparison or ranking of programs by missing-work burden comes from this field, and a ratio must never be re-derived from the other columns."""
     claims = caller(ctx)
     async with audited("get_program_engagement_rollup", claims, {"program_code": program_code}):
         require_role(claims, "dean", "get_program_engagement_rollup")
@@ -210,6 +235,7 @@ async def get_program_engagement_rollup(ctx: Context, program_code: str | None =
             rollup.append(ProgramEngagement(
                 program_code=code, sections=counts[code], enrollment=enrollment,
                 pct_logged_in_this_week=pct_active, missing_submissions=missing,
+                missing_per_student=per_student(missing, enrollment),
             ))
         # Summed from the rows just built, not from the query again: the total
         # has to be the total of what is shipped, whatever the filter did.

@@ -40,10 +40,21 @@ def query(sql: str, *params: object) -> list[sqlite3.Row]:
 
 
 class Occupation(BaseModel):
+    """One occupation, with the length of its own skill list stated.
+
+    `skill_count` is `len(skills)` and exists because the qualification beat
+    reads "n of N" aloud and the model counts N itself. Session 13's
+    certification pass said "0 of 5" for Financial Analysts on a line that named
+    all six of its skills; Session 11 and Session 9 recorded the same shape on
+    the same beat. Same fix as mcp-canvas's counts and totals: put the number in
+    the payload rather than asking for better arithmetic.
+    """
+
     soc_code: str
     title: str
     growth_pct: float
     median_wage: int
+    skill_count: int
     skills: list[str]
 
 
@@ -57,6 +68,15 @@ def skills_for(soc_code: str) -> list[str]:
             query("SELECT skill FROM occupation_skills WHERE soc_code = ? ORDER BY skill", soc_code)]
 
 
+def occupation_from(row: sqlite3.Row) -> Occupation:
+    """One occupation row, with skill_count taken from the list it ships with."""
+    skills = skills_for(row["soc_code"])
+    return Occupation(
+        soc_code=row["soc_code"], title=row["title"], growth_pct=row["growth_pct"],
+        median_wage=row["median_wage"], skill_count=len(skills), skills=skills,
+    )
+
+
 @mcp.custom_route("/healthz", methods=["GET"])
 async def healthz(request: object) -> JSONResponse:
     return JSONResponse({"status": "ok"})
@@ -64,30 +84,23 @@ async def healthz(request: object) -> JSONResponse:
 
 @mcp.tool()
 async def list_occupations(ctx: Context, sort_by_growth: bool = True) -> list[Occupation]:
-    """All tracked occupations with projected growth, median wage, and skills. Sorted by growth by default."""
+    """All tracked occupations with projected growth, median wage, and skills. Sorted by growth by default. Each occupation's skill_count is how many skills it has: every "n of N" denominator about an occupation's skills is its skill_count, and the list is never to be counted."""
     claims = caller(ctx)
     async with audited("list_occupations", claims, {"sort_by_growth": sort_by_growth}):
         order = "growth_pct DESC" if sort_by_growth else "title ASC"
         rows = query(f"SELECT * FROM occupations ORDER BY {order}")  # noqa: S608 — not caller data
-        return [Occupation(
-            soc_code=row["soc_code"], title=row["title"], growth_pct=row["growth_pct"],
-            median_wage=row["median_wage"], skills=skills_for(row["soc_code"]),
-        ) for row in rows]
+        return [occupation_from(row) for row in rows]
 
 
 @mcp.tool()
 async def get_occupation(soc_code: str, ctx: Context) -> Occupation:
-    """One occupation by SOC code: title, projected growth, median wage, and its skill profile."""
+    """One occupation by SOC code: title, projected growth, median wage, and its skill profile. skill_count is how many skills it has: every "n of N" denominator about this occupation's skills is skill_count, and the list is never to be counted."""
     claims = caller(ctx)
     async with audited("get_occupation", claims, {"soc_code": soc_code}):
         rows = query("SELECT * FROM occupations WHERE soc_code = ?", soc_code)
         if not rows:
             raise UnknownOccupation(f"unknown SOC code {soc_code}")
-        row = rows[0]
-        return Occupation(
-            soc_code=row["soc_code"], title=row["title"], growth_pct=row["growth_pct"],
-            median_wage=row["median_wage"], skills=skills_for(row["soc_code"]),
-        )
+        return occupation_from(rows[0])
 
 
 @mcp.tool()
