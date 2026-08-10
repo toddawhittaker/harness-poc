@@ -67,7 +67,372 @@ never in the app.
 
 ---
 
-# Session 13 verification — the current record, and the final certification
+# Session 15 verification — the current record, and the closing certification
+
+The last measurement of the build. One pass by the demo-verifier agent, **rows
+8552–8659**, 108 rows, 2026-08-10 02:09:29–02:18:16Z, driven through the
+gateway's `/chat` with real RS256 persona tokens. Step 4 ran
+`./scripts/demo_bypass.sh` unmodified; step 5b carried step 5a's rendered prose
+back as client-held history; step 10 was raw curl at six ports. Every figure was
+recomputed from `data/*.db` rather than quoted from an earlier report, and
+nothing had drifted. **No code changed this session, and nothing in the
+repository changed during the pass** — `git status --porcelain` was empty before
+and after, and no container was restarted.
+
+The configuration certified is the shipping one: Session 14's `missing_per_student`
+on every rollup row and `skill_count` on every occupation payload, both models in
+non-thinking mode, `plain_language` scoped to advisor, dean and adjunct.
+
+A warm-up request as kim — "What is the median wage for information security
+analysts?", a question outside the demo script — occupies rows 8552–8556 and is
+excluded from scoring.
+
+## The rubric this pass was scored under
+
+This certification characterizes the build rather than grading it pass/fail on
+one axis, so the rubric has three tiers and the verdict states all three. It is
+quoted here exactly as it was given to the verifier:
+
+> (a) Any stated figure that a tool result or database states — values, totals,
+>     counts, denominators, growth, wages, GPAs, percentages — is scored strictly;
+>     one error fails the beat.
+> (b) The two characterized residual classes — ordinal claims about tool-stated
+>     values, and cross-server intersection numerators — do not fail a beat when
+>     the underlying values beside them are exact; each instance is recorded in a
+>     RESIDUALS section with its row reference, beside Session 14's measured rates
+>     (ordinals wrong in 2 of 5 step-2 runs; intersection tallies wrong in 3 of 5
+>     step-7 runs).
+> (c) Presentation findings (preambles, verbosity) are recorded as warts.
+
+An ordinal claim is a rank or superlative asserted in prose about a value the
+tool states, and it falls under (b) only when the values it is about are printed
+correctly in the same reply. A cross-server intersection numerator is the "n" in
+"n of N" — how many of an occupation's skills appear in a program's outcome tags.
+The denominator N is `skill_count`, which a tool states, so a wrong denominator
+is tier (a) and fails the beat.
+
+## Verdict
+
+**Eleven of twelve beats pass tier (a). One beat fails. Four tier-(b) residual
+instances were recorded, three of them firm and one borderline. Eight tier-(c)
+warts were recorded in this pass, plus one standing wart carried forward.**
+
+**Tier (a) was not violated anywhere in this pass.** Every figure that a tool
+result or the database states — every headcount, total, count, denominator,
+growth percentage, wage, GPA, login percentage, missing count, seat count, term,
+grade, credit count, `skill_count`, `missing_per_student`, and every intersection
+numerator, across twelve replies — was exact on recomputation. That is the first
+pass in the record with no arithmetic error of any kind on a tool-stated figure.
+
+**The single failure is behavioural rather than arithmetic**, and it is the one
+that matters most: demo moment 5's tool-layer refusal did not fire, because the
+model answered from the section list it already held instead of calling the tool
+that would have refused. It would only pass with a change to the system, and no
+change was made. See the beat-5 breakdown and the presenter section at the end.
+
+| Beat | Result | Note |
+|---|---|---|
+| 1 | PASS | Rows 8557–8561. 25 advisees, 9 flagged, 6 flagged-and-quiet, 2 quiet-without-flag, 3 flagged-still-logging-in — all exact. All eleven named students verified for id, name, program, GPA, days since login and flag text. Every line `[colleague]` |
+| 2 | PASS | Rows 8562–8570. The rollup table exact on all six programs, including all six `missing_per_student` values. "25.0% quiet … about 12 of 48" exact; "lowest average GPA at 2.81, the only program below 3.0" exact. **Every ordinal claim in this reply was correct.** Two warts |
+| 2b | PASS | Rows 8571–8577. Row **8577** carries `active_skills: ["plain_language"]`. All six quiet percentages, the 2.81 GPA and the 3.06–3.17 range exact. Register plainly different and the finding leads. One tier-(b) comparative slip, one typo |
+| 3 | PASS | 3a rows 8578–8579: `refused_at_gate`, **zero tool rows**, courteous. 3b rows 8580–8584: all 24 tool-stated figures — twelve growth percentages and twelve wages — exact and correctly ranked |
+| 4 | PASS | Rows 8585–8586. `tools that actually ran: none`; row 8585 shows `tools_used: []` against `tools_offered: ["get_occupation", "list_occupations"]`. mcp-colleague refused verbatim at row **8586**, which carries `"decision": "refused"` and renders amber |
+| **5** | **FAIL** | **5a and 5c pass; 5b fails.** Broken out below |
+| 6 | PASS | Rows 8606–8612. Leon Cline, S-1055, CS-BS, GPA 3.41. Three open courses with exact titles, credits, sequence numbers and seats; CS-460 correctly blocked pending both CS-310 and CS-350; prior grades exact; 2027SP correctly rendered "Spring 2027" |
+| 7 | PASS | Rows 8613–8621. All sixteen CYB-BS outcome skills listed exactly. Four occupations with exact growth, exact `skill_count` denominators and **every intersection numerator correct** — 8 of 8, 3 of 7, 0 of 7, 0 of 7. `[kuali]` and `[labor]` interleaved |
+| 8 | PASS | Rows 8622–8640. Six distinct `get_course_outcomes` calls (rows 8628–8633), one per program, before any catalog-wide claim. All 78 skill strings across six programs exact, both SOC codes exact, both numerators exact. Both intended unmapped fast-growers surfaced |
+| 9 | PASS | The viewer serves at `http://localhost:8030/`, 200, self-contained. Every beat of this pass is on the record; the row map is below |
+| 10 | PASS | Rows 8641–8652. Twelve probes, twelve 401s, twelve `auth_failed` rows — six for a missing header and six for a bad signature, one of each at all six token-validating services |
+| **amber check** | **PASS** | Row **8655**: `skill_refused` carrying `"reason": "unknown"` **and** `"decision": "refused"`, the key that makes it amber. No `answer_returned` row, so nothing reached the model. The viewer rule was read rather than assumed (`services/audit/viewer.html:146,177-178`) |
+
+### Beat 5, broken out
+
+**5a — noor, "How is my CYB-310 section doing this week?" — PASS.** Rows
+8587–8593. Called `get_my_sections`, then `get_section_engagement` (row 8589,
+`decision: ok`). Eight students, all logged in, three missing submissions; every
+per-student figure exact. Cited `[canvas]`.
+
+**5b — noor, "And how's BUS-201-A doing?" — FAIL.** Rows 8594–8598. The reply is
+honest and its two stated section ids are correct:
+
+> I don't have BUS-201-A in my sections this term. My roster shows only
+> CYB-210-A and CYB-310-A [canvas]. I can't report on a section I don't teach.
+
+**But the tool layer was never reached.** The only call in the beat is
+`get_my_sections` (row 8595). There is no `get_section_engagement` row for noor
+anywhere in the beat, so the spec-fixed refusal sentence never appeared and no
+amber row was written. Row **8597** shows `get_section_engagement` was in noor's
+`tools_offered` — the model held the tool and chose not to call it.
+
+Demo moment 5's claim is not "the model declines politely"; it is *the tool
+server refuses, by name, and it lands amber on the audit page*. That did not
+happen. The enforcement is intact — a direct probe of the same call refuses
+verbatim (row 8656) — but the demonstration path did not exercise it.
+
+The structural cause is that `get_my_sections` returns the section list, which
+makes "is BUS-201-A mine?" answerable without calling the tool that refuses.
+**This is a known instability of this beat, not a new regression.** Session 6
+recorded exactly this outcome, in the same shape, at rows 3616–3623; Session 11
+measured the same loss in roughly half of ten runs with extended reasoning
+enabled; Session 12 measured it in 2 of 5 runs with the plain-language skill
+active against 0 of 4 with it off. Sessions 7 through 13 drew a call. This pass,
+in the shipping configuration and with no skill active, drew a miss. One run is
+one draw: it does not establish a rate, and it does not overturn Session 13's
+pass, but it does establish that the beat is not deterministic in the shipped
+configuration.
+
+**5c — kim, "How's engagement across all programs this week?" — PASS on tier
+(a).** Rows 8599–8605. Six programs, 20 sections, 165 enrolled, 112 missing —
+all four stated verbatim from the tool's authoritative totals. All six login
+percentages exact. The groundedness guard fired once here (row **8601**: cited
+`[colleague]` for a request that reached only canvas) and the regeneration came
+back correctly cited. Two tier-(b) ordinal errors, below.
+
+## RESIDUALS — tier (b)
+
+Four instances. In every one, the values the claim is about are printed
+correctly in the same reply.
+
+**1. Ordinal, row 8605 (beat 5c).**
+
+> BUS-BS has the lowest missing-work burden but the weakest login rate — just
+> 63.6% of its 22 students logged in this week.
+
+IS-MS at 0.500 is the lowest; BUS-BS at 0.545 is second-lowest. The reply's own
+numbered list, three lines above, puts BUS-BS fifth and IS-MS sixth. "Weakest
+login rate" and "63.6% of its 22 students" are both correct.
+
+**2. Ordinal, row 8605 (beat 5c).**
+
+> IS-MS is in the best shape on both measures [canvas].
+
+Half wrong. IS-MS does hold the lowest missing-work burden, but its login rate of
+80.0% trails CS-BS at 95.0%, DAT-MS at 89.7% and CYB-BS at 86.0%. Both values are
+printed correctly in the same list.
+
+**3. Comparative to a mean, row 8577 (beat 2b).**
+
+> HIM-BS has both a higher-than-average quiet rate and a higher-than-average
+> missing-work rate.
+
+The missing-work half is right. The quiet half is wrong: HIM-BS is 10.4% against
+an unweighted mean of 10.63% and a weighted mean of 10.67%, so it is below
+average on either reading. This is a relative-position claim rather than a rank,
+so it sits adjacent to the residual class rather than squarely inside it; it is
+recorded under (b) because it states no figure of its own and the figure it is
+about is printed correctly one paragraph above.
+
+**4. Ordinal, borderline, row 8621 (beat 7).**
+
+> No other fast-growing occupation reaches even half coverage.
+
+Network and Computer Systems Administrators is 3 of 6 — exactly half — at 21.5%
+growth, and the reply had examined only the top four. Whether it counts as
+"fast-growing" is undefined. Recorded for completeness; every value in that reply
+is exact.
+
+### The rate, beside Session 14's
+
+Session 14 measured ordinal claims wrong in **2 of 5** step-2 runs and
+intersection tallies wrong in **3 of 5** step-7 runs. In this pass:
+
+| Class | Session 14 | This pass |
+|---|---|---|
+| Ordinal claims, step 2 | wrong in 2 of 5 runs | **0 of 1 wrong** — every ordinal in beats 2 and 2b correct |
+| Intersection numerators, step 7 | wrong in 3 of 5 runs | **0 of 1 wrong** — all four numerators and all four denominators exact |
+| Ordinal claims, anywhere in the pass | not measured outside step 2 | **3 instances**, in beats 5c and 2b |
+
+**This is one run per beat — a single draw, not a rate, and it is not evidence
+of improvement.** Drawing zero errors from a 2-in-5 process happens about 60% of
+the time and from a 3-in-5 process about 40% of the time, so this pass is fully
+consistent with both rates being unchanged.
+
+What it does show is new and worth the record: **the ordinal class is not
+confined to step 2.** Session 14's `missing_per_student` field removed the need
+to derive a ratio, and no derived ratio was wrong anywhere in this pass — but the
+model still misread the *ranking* of ratios it had itself printed correctly, and
+it did so on the executive rollup beat rather than the one the field was aimed at.
+
+## WARTS — tier (c)
+
+1. **Beat 8's leaked reasoning, row 8640 — the worst cosmetic finding of the
+   pass**, on the beat that is on screen when the room is told it is watching
+   program strategy. Mid-reply: *"**Union**: API design, SQL, algorithm design,
+   … data visualization, database administration, deep learning — wait, that's
+   not in any program. Let me be systematic."* 4,230 characters.
+2. **Beat 7 preamble and a promise it breaks, row 8621.** Opens *"Now I'll
+   compare … Let me go through them in order of growth"* and then presents
+   Information Security Analysts (32.7%) before Cloud Infrastructure Architects
+   (33.8%) and AI/ML Engineers (35.2%). 2,329 characters.
+3. **Beat 2 citation defect, row 8570.** `[colleague+cross-reference: engagement
+   counts come from canvas, enrollment from colleague]` — the whole table came
+   from canvas, and the marker format is not the one SPEC §4.3 fixes. The
+   groundedness guard did not fire because colleague genuinely was reached
+   elsewhere in the same request.
+4. **Beat 2b identifier typo, row 8577.** "DATA-MS" for DAT-MS.
+5. **Beat 3b editorial imprecision, row 8584.** "Three of the top four are in
+   computing and data fields" — all four are. No tool states a field taxonomy.
+6. **Beat 5c re-rounds the shipped ratios, row 8605.** The tool ships three
+   decimal places; the reply prints two. No value is misstated, but the field
+   exists so the number would be quoted as given.
+7. **Beat 6 skipped the degree-progress half, row 8612.** Used
+   `get_student_summary` and `get_next_term_options` and never called
+   `get_student_degree_progress`, so "9 of 24 credits" never appears. SPEC §7
+   step 6 names degree progress first. What the answer does state is complete and
+   correct.
+8. **`get_enrollment_trends` returns terms in alphabetical order, not
+   chronological** (`services/mcp-colleague/app.py:418-421`, `ORDER BY
+   program_code, term`). Term strings sort 2025FA, 2025SP, 2026FA, 2026SP; the
+   true chronology is 2025SP, 2025FA, 2026SP, 2026FA. Beat 2 read the rows as a
+   series and concluded that no program is shrinking. That holds first-to-last on
+   the true chronology, but CS-BS does fall 50 to 47 in the most recent term. **No
+   figure is stated wrongly, so this fails nothing under the rubric — but it is a
+   latent defect that needs a code change, and no change was made.**
+
+9. **Standing wart, carried forward: a reply that claims an offered tool is
+   unavailable.** `docs/LESSONS.md` entry 4's known class, recorded since Session
+   7. Its most recent sighting is Session 14 §9, during a test-suite run: pat
+   asked the public-data question and the model replied *"The tool I would need to
+   list occupations is not available to me"* without calling it, failing
+   `tests/test_skills.py::test_an_authorized_skill_is_accepted_and_named_on_the_receipt`.
+   The audit row proved the tool was offered and the failure was the model's —
+   `tools_used: []` against `tools_offered: ["get_occupation",
+   "list_occupations"]` — and `list_occupations` had served kim successfully
+   seconds earlier in the same run. It passed on three re-runs and in the clean
+   full-suite run that followed, so the rate is roughly one suite run in four or
+   five. **It is a flaky test only in the sense that the model is flaky**; nothing
+   in the code is wrong, and no fix has ever been attempted beyond the prompt
+   sentences entry 4 records as partial.
+
+**That flake did not appear** anywhere in this certification pass. Two
+replies came close and both are truthful: beat 2b's "I do not have a tool that
+lists individual students across the university" and the bypass script's "it
+isn't among the tools I can call on your behalf right now" are each borne out by
+that row's own `tools_offered`. Beat 5b is a different failure — noor *was*
+offered the tool and simply did not call it, and she claimed nothing about
+availability.
+
+## Standing checks
+
+| Check | Result |
+|---|---|
+| Prompt cache | **25** model calls with telemetry (13 router, 12 agent), minimum `prompt_cache_hit_tokens` **896**, **zero** calls with zero hits |
+| Four spec-fixed refusal strings, verbatim at the tool layer | **All four.** Row 8586 (pat, in-beat); rows 8656, 8658, 8659 by direct read-only probe after the beats. The BUS-201-A string came from the probe, **not** from beat 5b — which is why beat 5 fails |
+| Faculty/dean asymmetry | Proven on an **identical `args_hash 8dcd893de78e`** — row **8656** noor refused, row **8657** kim served, same call, different token, decided in mcp-canvas. On the probes, because beat 5b never dialled the server |
+| Dropped audit events in the window | **Zero.** The most recent drop in the whole log is 02:06:08Z, three minutes before the window opened and a third of a second after the test suite's disruptive test stopped the audit container |
+| `tools_used ⊆ tools_offered` | Holds on **12 of 12** `answer_returned` rows; `unoffered_calls` present and empty on every one |
+| Guard ledger | **1 fire, 1 regeneration, 0 declines** (row 8601, kim, citing a server the request never reached) |
+| `active_skills` discipline | Row 8577 carries `["plain_language"]`; the other **eleven** carry `[]` |
+
+Row map: warm-up 8552–8556 · 1 8557–8561 · 2 8562–8570 · 2b 8571–8577 ·
+3a 8578–8579 · 3b 8580–8584 · 4 8585–8586 · 5a 8587–8593 · 5b 8594–8598 ·
+5c 8599–8605 · 6 8606–8612 · 7 8613–8621 · 8 8622–8640 · 10 8641–8652 ·
+amber 8653–8655 · standing-check probes 8656–8659.
+
+## RESIDUAL RISKS AND PATTER
+
+What a presenter should know before standing in front of the room, beat by beat.
+These are measured positions, not guesses.
+
+### Step 2 — the executive aggregate
+
+**Reliable.** The burden leader is right every time: Session 14 measured DAT-MS
+named correctly in 5 of 5 runs, and this pass makes it 6 of 6. Every value in the
+table — enrollment, missing counts, login percentages, GPAs, and all six
+`missing_per_student` ratios — comes from a tool field and has been exact in
+every run since Session 14 shipped the field.
+
+**The risk.** Prose comparisons across those values are the model's own work.
+Avoid inviting a full ranking, and avoid "which is lowest" — that is the exact
+shape that has produced wrong ordinals. If the reply volunteers an ordinal
+anyway, **the table beside it is exact**, so you can read the correct order
+straight off the screen without contradicting yourself.
+
+**The honest line, and it is a strength rather than an apology:** *the values
+come from the tools and the comparisons are the model — which is precisely why
+the production design routes reasoning budget by intent rather than paying for it
+everywhere.* That is `ARCHITECTURE.md`'s model-pool argument, stated from
+measured evidence rather than theory.
+
+### Step 7 — the qualification synthesis
+
+**Reliable.** Denominators, growth percentages, wages, the skill lists
+themselves, and the headline 8-of-8 match for Information Security Analysts. The
+denominator is `skill_count`, a tool field since Session 14, and it has been
+exact in every run since — 41 of 41 in Session 14's measurement and all four in
+this pass.
+
+**The risk.** The intersection tally — how many of an occupation's skills the
+programme actually covers — can contradict the covered and missing lists printed
+beside it. Session 14 saw that in 3 of 5 runs; this pass saw none. If it happens,
+the lists are the truth and the tally is the error.
+
+**The honest line:** *the join is performed live by the model, in the open, and
+it is checkable — the audit page holds the tool results it was working from.*
+That is the deliberate design position rather than a gap. A cross-server tally
+tool would replace the synthesis this beat exists to demonstrate with a lookup.
+
+### Demo moment 5 — the faculty/dean asymmetry
+
+**New in this pass, and the presenter must know it.** Noor's second turn is
+supposed to reach mcp-canvas, be refused by name, and leave an amber row. In this
+certification it did not: the model answered from the section list it already
+held, and no refusal row was written. The answer was still correct and honest —
+it named BUS-201-A and declined — but the amber row demo moment 9 points at was
+not there.
+
+**What to do about it.** Check the audit page before the beat is over. If there
+is no amber `get_section_engagement` row for noor, do not promise one. The
+enforcement is intact either way, and the fallback line is true and strong: *the
+tool server refuses that call — here it is on the audit page* — pointing at the
+bypass row from moment 4, which is deterministic because a script makes the call
+rather than a model. If the refusal does fire, it is the better beat; treat it as
+the upside rather than the guarantee.
+
+### Demo moment 4 — the bypass
+
+**Deterministic, and the strongest beat in the script.**
+`scripts/demo_bypass.sh` makes the call itself, so no model decides whether the
+boundary gets touched. It passed here exactly as in every session since Session
+7: the orchestrator reports `tools that actually ran: none`, mcp-colleague
+refuses `get_my_advisees requires the advisor role.` verbatim, and row 8586 lands
+amber. When any model-driven beat wobbles, this is the one to fall back on.
+
+### The plain-language beat
+
+Unchanged from Session 13, above: the skill changes the words and not the facts,
+the registry decides who may switch it on, and noor is refused by the registry
+rather than by a note in a document.
+
+## Seed-data assessment
+
+**No change was made, and none is needed for the demo to run.** Everything the
+script leans on is crisp: dana's 25/9/8/6 read cleanly, S-1055 produced exactly
+three open courses and one blocked capstone, the qualification beat produced the
+intended strong match, partial match and miss, and the gap beat surfaced exactly
+the two intended unmapped fast-growers. Three narrow observations for the MVP's
+attention rather than the demo's, all of which would move figures pinned
+throughout this file and so are re-seeds plus recomputations:
+
+1. **HIM-BS sits almost exactly on the mean quiet rate** — 10.4% against a
+   10.63% unweighted mean — which is what produced residual 3. Moving it clearly
+   above or below would make any "above average" sentence unambiguous.
+2. **The bottom two `missing_per_student` values are 0.045 apart** (BUS-BS 0.545,
+   IS-MS 0.500), and residual 1 confused exactly that pair. Widening the bottom of
+   the range would not stop the model misreading its own list, but it would make
+   the misreading visible from the back of the room.
+3. **Network and Computer Systems Administrators lands on exactly half coverage**
+   (3 of 6), which is what put residual 4 on a knife edge.
+
+Session 13's standing item is unchanged: BUS-201-A holds 2 students and
+BUS-201-B holds 1, so kim serving the section noor was refused pays off with a
+two-row roster.
+
+This section supersedes the Session 13 record below it.
+
+---
+
+# Session 13 verification — superseded by Session 15 above
 
 Three changes were made this session and all three were verified. One pass by
 the demo-verifier agent, **rows 7804–7901**, 98 rows, 2026-08-10

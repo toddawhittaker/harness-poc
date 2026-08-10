@@ -143,18 +143,64 @@ The measured record:
 | Same count | **Changing the data so the four counts are four distinct facts** (Session 10) | See entry 9 |
 | Students printed under the wrong group heading, with their real login gaps beside them (Session 11) | **Tool ships the group membership, not just the sizes** (Session 12) | 5 of 5 runs correct, and correct again in two certifications |
 | The executive rollup's cross-program total: "78 missing submissions" where the six programs sum to 112 (Session 12) | **Tool returns the three totals it used to make the model add up** (Session 13) | 5 of 5 runs stated it verbatim, and the certification beat that had failed passed |
+| A missing-to-enrollment ratio the model derived and stated wrong in both arms of one beat (Session 13) | **`missing_per_student` on every rollup row, computed from the two fields beside it** (Session 14) | All 30 ratios across 5 runs exact, and all 6 exact again in the closing certification |
+| "0 of 5" for an occupation carrying 6 skills, a length the model counted itself (Session 13) | **`skill_count` on the occupation payload, taken from the list it ships with** (Session 14) | All 41 denominators across 5 runs exact, and all 4 exact again in the closing certification |
 
-**Where.** Sessions 5 through 13; the table above is assembled from each
+**Where.** Sessions 5 through 15; the table above is assembled from each
 session's measurement section.
 
-**Six applications, six holds, and no exceptions.** That is the whole of the
-evidence for the advice below, and it is worth saying that the sixth was chosen
-because the fifth worked: Session 12's certification failed one beat on a
+**Eight applications, eight holds, and no exceptions.** That is the whole of the
+evidence for the advice below, and it is worth saying that each was chosen
+because the last one worked: Session 12's certification failed one beat on a
 derived total, named the fix in its own report, and Session 13 applied the same
-technique one level out and the beat passed. The failures that remained in that
-final pass were, every one of them, numbers no tool states — a ratio the model
-compared and a list length it counted. The rule is not "give the model good
-instructions about arithmetic". It is **put the number in the payload.**
+technique one level out and the beat passed; Session 13's certification failed on
+a ratio and a denominator, named both, and Session 14 shipped a field for each.
+The rule is not "give the model good instructions about arithmetic". It is **put
+the number in the payload.**
+
+**And Session 14 found where the technique stops.** Both its fields worked
+perfectly — every value either one states was transcribed correctly into every
+reply, thirty ratios and forty-one denominators without a single error — and
+*both beats failed their acceptance anyway*. Session 14's report states the
+finding in the sentence this entry now ends on:
+
+> Putting a number in the payload fixes the number, and moves the error to the
+> next thing that is not in the payload.
+
+The two things it moved to are now characterized, and the closing certification
+scored them as a named tier rather than as surprises:
+
+- **Ordinal claims about a field.** The tool ships six values; the *order* of
+  those six is still the model's own work. Session 14 saw a wrong rank in 2 of 5
+  runs while all six values printed correctly on the same screen, and Session
+  15's certification saw three more instances — on a different beat from the one
+  the field was aimed at, which is the part worth noticing.
+- **Set-intersection counts across two servers.** How many of an occupation's
+  skills appear in a programme's outcome tags. `skill_count` fixed the
+  denominator because a denominator is a length. The numerator is a join, and no
+  single tool result contains it.
+
+**Neither was chased, and the reasons are different.** A rank *could* be a
+payload field — a `rank` column, or rows returned in ranked order with the
+docstring saying so — and the user declined it deliberately: the technique has
+eight marks and needs no ninth, chasing each newly-exposed derived quantity is an
+unbounded regress, and the residual is now a characterized, documented, low-cost
+wart rather than an unknown. The intersection is different in kind. **A tool that
+computed the tally would span two servers, and it would replace the synthesis the
+demonstration exists to show with a lookup** — the whole claim of demo moments 7
+and 8 is that the harness joins independent governed sources live, in the open,
+against a shared controlled vocabulary. Building the join into a tool would make
+the number reliable and the demonstration pointless. That boundary is a design
+decision, and it is the one place in this record where "put the number in the
+payload" is the wrong answer.
+
+**What that means for the MVP.** The technique is close to free and it works
+every time, so apply it to every count, total, ratio and length an answer will
+state. Then expect the error to reappear one step out, and decide *there*
+whether the next quantity belongs in the payload, belongs in a reasoning budget
+(entry 9), or belongs left alone and written down. Not every derived number is
+worth a field, and one of them — the one that is the product on display — must
+not have one.
 
 **What the MVP should do.** When a model misbehaves, ask first whether the
 system can be arranged so the misbehaviour is impossible or is caught after the
@@ -472,6 +518,61 @@ is a per-workload decision, not a global setting, and the flag should be per
 model rather than one switch for the whole system: ours governed the router and
 the agent together until we separated them, which is one recreation of the wrong
 container away from measuring one configuration and shipping another.
+
+### The final scoreboard for this defect class
+
+The build ended with the class narrowed rather than closed, and the shape of what
+is left is the useful part. Three things were tried against it.
+
+**Payload fields closed everything a tool can state.** Eight fields across
+Sessions 8 to 14 — four advisee counts, three group-membership lists, three
+rollup totals, a per-student ratio and a skill count — and every one held on
+every run afterwards. Entry 4 has the tally. Session 15's closing certification
+is the cleanest statement of the result: across twelve replies, **every figure a
+tool result or the database states was exact** — every headcount, total,
+denominator, growth percentage, wage, GPA, login percentage, missing count, seat
+count, term, grade and credit count. That had never happened before in a
+certification pass.
+
+**Reasoning mode closed most of what payload fields cannot reach, and cost a
+demonstration.** Session 10's controlled A/B, five runs of each arithmetic-heavy
+beat per arm:
+
+| | Reasoning off | Reasoning on |
+|---|---|---|
+| Skills tallies: runs with a wrong tally | 2 of 5 | **0 of 5** |
+| Advisor counts: runs stating a wrong count or arguing with themselves | 3 of 5 | **0 of 5** |
+| Runs opening with visible deliberation before the answer | 5 of 5 | **0 of 5** |
+| Median latency | 13.8s | 21.3s |
+
+Session 11 then ran the whole demonstration in it and found the bill: the
+authorization refusal that demo moment 5 turns on stopped reaching the tool
+server in about half of ten runs, because a model that has already reasoned over
+a list it fetched answers from that list instead of calling again. We reverted.
+The trade is genuine and it is not a winner either way.
+
+**What remains in the shipping configuration, and at what rates.** Two classes,
+both measured, both now written into `DEMO_VERIFICATION.md`'s rubric as a named
+tier rather than treated as defects to be surprised by:
+
+| Residual | Measured rate | Where |
+|---|---|---|
+| Ordinal claims about a tool-stated value — "second-highest", "the lowest" | wrong in **2 of 5** step-2 runs (Session 14); 3 further instances in Session 15's single-run certification, on a different beat | Any reply comparing values across rows |
+| Cross-server intersection numerators — the "n" in "n of N" | wrong in **3 of 5** step-7 runs (Session 14); 0 of 1 in Session 15's certification | The qualification and gap syntheses |
+
+Session 15's zero-error draw on both is one run per beat and is fully consistent
+with those rates being unchanged; it is characterization, not improvement.
+
+**The lesson, stated once.** A model gets right what it is handed and gets wrong
+what it works out. Hand it everything a tool can compute — that is close to free
+and it never failed once in eight applications. For what is left, you have three
+honest options and you should choose deliberately rather than by default: put it
+in the payload if a tool can own it; spend a reasoning budget on that path if the
+number matters more than the latency and nothing downstream depends on the model
+staying eager to call tools; or measure the rate, write it down, and tell the
+person standing in front of the room which numbers on the screen are the tools'
+and which are the model's. **The last option is not a failure. An unmeasured
+residual is the failure.**
 
 ---
 
