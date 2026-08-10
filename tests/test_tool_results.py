@@ -24,6 +24,11 @@ Each field here exists because a demo answer went wrong without it:
     counts were exact and the sentence under the table said "78 missing
     submissions" where the six add to 112: the model stopped adding after four
     rows.
+  * `missing_per_student` on a rollup row, and `skill_count` on an occupation —
+    the last two numbers the demo stated that no tool stated. A ratio compared
+    across programs ("CS-BS has the highest missing-to-enrollment ratio", where
+    DAT-MS is higher) and a list length counted for a denominator ("0 of 5"
+    above six named skills).
 
 They run against the live stack with real tokens, like everything else here.
 """
@@ -356,6 +361,83 @@ def test_the_engagement_rollup_states_its_own_cross_program_totals(
         # to say. scripts/seed.py gives every program sections and students.
         assert payload[total_field] > 0, (
             f"{total_field} is zero; check scripts/seed.py"
+        )
+
+
+@pytest.mark.session2
+def test_every_rollup_row_states_its_own_missing_work_rate(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """The ratio demo moment 2 ranks programs by, divided by the tool.
+
+    Session 13's certification pass said CS-BS had "the highest
+    missing-to-enrollment ratio of any program" in both arms of the same beat.
+    CS-BS is 16/20 = 0.800 and DAT-MS is 24/29 = 0.828, so the ranking was
+    wrong while every figure taken *from* a tool was exact — the wrong number
+    was the one no tool stated.
+
+    Three decimal places, matching `per_student` in services/mcp-canvas/app.py.
+    Written out here rather than imported: this workspace does not install the
+    server's dependencies.
+    """
+    with mcp_session(MCP_SERVERS["mcp-canvas"], token_for("kim")) as session:
+        result = session.call_tool("get_program_engagement_rollup", {})
+    assert not result.refused, f"kim holds the dean role and must be served: {result.text[:300]}"
+
+    programs = structured(result.text).get("programs")
+    assert programs, "the rollup came back with no programs"
+
+    for program in programs:
+        assert "missing_per_student" in program, (
+            f"{program['program_code']} states no missing_per_student: {sorted(program)}"
+        )
+        expected = round(program["missing_submissions"] / program["enrollment"], 3)
+        assert program["missing_per_student"] == expected, (
+            f"{program['program_code']} states missing_per_student "
+            f"{program['missing_per_student']}, but the {program['missing_submissions']} "
+            f"missing submissions and {program['enrollment']} enrolled students beside it "
+            f"divide to {expected}"
+        )
+        # A rate of zero everywhere would satisfy the equality and leave the
+        # ranking with nothing to rank. scripts/seed.py gives every program
+        # missing work.
+        assert program["missing_per_student"] > 0, (
+            f"{program['program_code']} has no missing work at all; check scripts/seed.py"
+        )
+
+
+@pytest.mark.session2
+def test_every_occupation_states_how_many_skills_it_holds(
+    session2_stack: None, token_for: Callable[[str], str]
+) -> None:
+    """The denominator demo moment 7 reads aloud, counted by the tool.
+
+    "0 of 5" for Financial Analysts, on a line that named all six of its
+    skills — Session 13's certification pass, Session 11 §5.3 and Session 9
+    finding 9.2, the same beat every time. Checked over every occupation, not
+    just the four the headline names, because the misses have been in the
+    secondary ones.
+    """
+    with mcp_session(MCP_SERVERS["mcp-labor"], token_for("kim")) as session:
+        result = session.call_tool("list_occupations", {})
+    assert not result.refused, f"labor data is open to every role: {result.text[:300]}"
+
+    # list_occupations returns a bare list, which FastMCP wraps under `result`.
+    occupations = structured(result.text)["result"]
+    assert occupations, "no occupations came back; check scripts/seed.py"
+
+    for occupation in occupations:
+        assert "skill_count" in occupation, (
+            f"{occupation['soc_code']} states no skill_count: {sorted(occupation)}"
+        )
+        assert occupation["skill_count"] == len(occupation["skills"]), (
+            f"{occupation['title']} states skill_count {occupation['skill_count']} "
+            f"beside {len(occupation['skills'])} skills"
+        )
+        # SPEC §5 asks for 5-8 skills each; zero would pass the equality and
+        # give the qualification beat nothing to match against.
+        assert occupation["skill_count"] > 0, (
+            f"{occupation['title']} carries no skills; check scripts/seed.py"
         )
 
 
