@@ -109,6 +109,20 @@ docker compose restart mcp-colleague mcp-canvas mcp-kuali mcp-labor
 The restart is not optional. The servers hold the deleted database files open,
 so without it you keep reading the old data.
 
+`scripts/seed.py` is the source of truth for what is in those databases, and it
+is deterministic (`random.seed(398)`). Because the generated databases are also
+committed, the two can drift apart silently — so there is a check:
+
+```bash
+uv run scripts/verify_seed.py
+```
+
+It re-runs the seed into a temporary directory, never touching `data/`, and
+compares every table by schema, row count and an order-independent digest of the
+contents. Comparing the files byte for byte would be useless, because SQLite page
+allocation is not stable across rebuilds and two databases holding identical rows
+routinely differ as files.
+
 ## The demonstration
 
 The fourteen-minute script is [`SPEC.md` §7](SPEC.md). The two beats worth

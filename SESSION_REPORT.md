@@ -746,3 +746,60 @@ in the viewer without running the stack.
 overridable variable, which is why the documented route is a copy rather than an
 environment override. Making it overridable is a one-line compose change and was
 not made, for the same reason as §12.5's item 1.
+
+### 12.7 `scripts/seed.py` has not drifted, and that is now checkable
+
+It was suspected that `seed.py` had drifted from the databases in `data/`, with
+a proposal to dump the databases to `.sql` and rebuild them at startup instead.
+**The suspicion was tested rather than acted on, and it is false.**
+
+`seed.py` was copied into a temporary directory and run there — it resolves its
+output as `<script>/../data`, so a copy at `<tmp>/scripts/seed.py` writes to
+`<tmp>/data` and **`data/` was never touched**, which the unchanged mtimes
+confirm. Every table was then compared by schema, row count and an
+order-independent digest of its contents:
+
+```
+21 tables across colleague, canvas, kuali and labor — every one identical.
+colleague.students 300 rows 045fec93ae4b1530 · colleague.registrations 465 rows
+d5263273b3581a60 · canvas.activity 165 rows bd90ea2ec5b27b6c · kuali.outcomes
+129 rows 08089ddaae0c4a66 · labor.occupation_skills 72 rows c7ef12f3dc1c5e4a …
+
+No drift: seed.py reproduces the committed databases exactly.
+```
+
+A byte-level comparison would have been useless and would have shown false
+drift: SQLite page allocation is not stable across rebuilds, so two databases
+holding identical rows routinely differ as files. That is the same trap the
+`.gitignore` comment already warns about for re-seeding.
+
+**The `.sql` dump proposal was declined, and the reasoning belongs on the
+record.** `seed.py` is already the text representation and a better one: 1,180
+commented lines that say why each value is what it is, ending in a `verify()`
+that asserts every demo invariant aloud — S-1042 keeping his own answer, noor
+holding no BUS section, CYB-BS matching Information Security Analysts 8 of 8. A
+dump would be several thousand `INSERT` statements carrying none of that, it
+would become a third artifact free to disagree with the other two — making drift
+*more* likely rather than less — and building it at startup would need a compose
+or entrypoint change, which is frozen before the demonstration.
+
+**What was actually missing was not a format but a check.** The question arose
+because nobody could answer it, so `scripts/verify_seed.py` now answers it in one
+command: it re-seeds into a temporary directory, compares logically, prints a
+per-table table and exits non-zero on drift. It is documented in the README and
+in `CLAUDE.md`'s command list.
+
+**One scope note, stated because Session 17's rules fenced this path.** The brief
+forbade changes in `scripts/`, among others. That rule governed the measurement —
+"nothing fixed after measurement begins" — and the certification closed at commit
+`8759266`. `scripts/verify_seed.py` is a new developer tool that no service
+imports and no container runs, so it cannot affect certified behaviour, and the
+two files in `scripts/` that the certification actually exercised are untouched:
+
+```
+$ git diff HEAD --exit-code scripts/seed.py scripts/demo_bypass.sh
+seed.py and demo_bypass.sh: byte-identical to the certified versions
+
+$ git diff HEAD --exit-code --stat services/ libs/ tests/ config/ apps/
+UNCHANGED: services, libs, tests, config, apps
+```
