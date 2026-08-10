@@ -1060,4 +1060,59 @@ time.
 daemon, an `incusbr0` bridge, a `dir` storage pool, the privileged container
 `harness-lxc`, and two non-persistent `DOCKER-USER` iptables rules. `sudo incus
 delete --force harness-lxc` removes the container; the rest is `sudo apt-get
-remove --purge incus` plus a reboot to drop the firewall rules.
+remove --purge incus` plus a reboot to drop the firewall rules. *(All of it was
+removed later the same day, and the host stack verified healthy afterwards.)*
+
+### 12.12 Surface branding, and a sharper number for the entry-4 flake
+
+Both Chainlit surfaces now carry their own identity: a favicon and a header
+wordmark per app in `public/`, and the "Built with Chainlit" footer hidden. The
+mark is one rounded bar above three blocks — one harness above many governed
+sources, which is the architectural claim rather than decoration — in each app's
+own accent, with light and dark variants. Chainlit resolves `public/favicon.*`
+and `public/logo_{light,dark}.*` ahead of its own assets
+(`chainlit/server.py:1756-1780`), so no configuration changed.
+
+Two things were got wrong first and corrected by looking rather than reasoning.
+The first draw connected the bar to the blocks with stems; rendered to PNG it
+read as a table, and worse at 16px, so the stems went — position alone says
+"above". Then the wordmark rendered about 30% shorter than the logo it replaced,
+because **Chainlit sizes the logo by width** (`w-[150px]` on the login screen,
+`w-[200px]` on the welcome screen) and lets height fall out of the aspect ratio.
+Chainlit's own logo is 1143×266, or 4.30:1, so it lands at 34.9px and 46.5px
+tall; ours is a longer wordmark at 6.13:1. Pinning height at each call site
+instead puts both surfaces at 214.75×35 on the login screen — the same height,
+wider only because the names are longer.
+
+**The suite then failed once, and the failure is worth recording because chasing
+it produced a number the record did not have.** The failing test was
+`test_skills.py::test_an_authorized_skill_is_accepted_and_named_on_the_receipt`,
+with the exact reply `docs/LESSONS.md` entry 4 has described since Session 7:
+
+```
+'reply': 'I cannot see the fastest-growing occupations right now. The tool that
+          returns occupation data is not available to me in this conversation.'
+'tools_used': []      tools_offered: ['get_occupation', 'list_occupations']
+```
+
+Row 10452 shows the tool **was** offered, so the failure is the model's and not
+the registry's. Three of the first five attempts failed, which is worse than the
+"one suite run in four or five" the record carries, so it was measured rather
+than dismissed — ten runs per arm, same persona, same question:
+
+| Arm | No tool called |
+|---|---|
+| pat **with** `plain_language` — what the test does | **2 of 10** |
+| pat **without** the skill — what demo moment 3b does | **0 of 10** |
+
+So the rate with the skill matches the documented one and the early 3-in-5 was
+small-sample noise. **More usefully, this is the first side-by-side measurement
+of the entry-4 flake against the skill**, and it puts a number on what Session 12
+found qualitatively: an instruction block sitting immediately before the question
+makes the model readier to answer than to fetch. The demonstration path is
+unaffected — demo moment 3b runs pat with no skill, and the plain-language beat
+is kim, not pat.
+
+**None of it is caused by the branding change**, which is CSS and SVG under
+`apps/*/public/` and cannot reach skill handling; the clean no-skill arm is the
+proof rather than the argument.
