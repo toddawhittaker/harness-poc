@@ -88,9 +88,21 @@ def router_model() -> OpenAIChatModel:
     return _model(ROUTER_MODEL, ROUTER_SETTINGS)
 
 
-def agent_model() -> OpenAIChatModel:
-    """The orchestrator's execution model (SPEC §4.3). Reads AGENT_THINKING only."""
-    return _model(AGENT_MODEL, AGENT_SETTINGS)
+def agent_model(reasoning: bool | None = None) -> OpenAIChatModel:
+    """The orchestrator's execution model (SPEC §4.3).
+
+    `reasoning` overrides AGENT_THINKING for this one call: None takes the env
+    default, True or False sets the budget for this request and no other. The
+    router assigns it per intent (services/gateway/app.py), so a synthesis
+    question can pay for reasoning without every question paying for it.
+
+    The override is a latency/quality budget, never a security property: no
+    authorization decision anywhere reads it, and every enforcement layer
+    below behaves identically whichever way it is set.
+    """
+    return _model(
+        AGENT_MODEL, AGENT_SETTINGS if reasoning is None else _settings(reasoning)
+    )
 
 
 class UsageStats(BaseModel):

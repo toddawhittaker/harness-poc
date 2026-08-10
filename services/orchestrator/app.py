@@ -36,7 +36,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from harness_auth import Claims, audit_event, bearer_claims
-from harness_models import agent_model, usage_stats
+from harness_models import AGENT_THINKING, agent_model, usage_stats
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ToolCallPart
 from pydantic_ai.mcp import MCPToolset
@@ -177,6 +177,15 @@ class ChatRequest(BaseModel):
     # registry and the caller's roles below, and ignored entirely when
     # SKILLS_ENABLED is off.
     active_skills: list[str] = Field(default_factory=list)
+    # The reasoning budget the gateway's router assigned to this question. None
+    # means "whatever AGENT_THINKING says", which is what a caller reaching this
+    # service directly gets — scripts/demo_bypass.sh sends no such field, so the
+    # bypass beat runs on the env default and is unchanged by construction.
+    #
+    # A budget, not a permission. A caller can set it to anything and see
+    # exactly the same data: the tool allowlist below and every MCP server's
+    # own check are untouched by it.
+    reasoning: bool | None = None
 
 
 class ChatReply(BaseModel):
@@ -372,6 +381,9 @@ async def chat(
 ) -> ChatReply:
     started = time.perf_counter()
     allowed = allowed_tools(claims.roles)
+    # Resolved once, here, so the model that runs and the receipt that records
+    # it cannot disagree about which budget answered.
+    reasoning = AGENT_THINKING if request.reasoning is None else request.reasoning
     retried: list[str] = []
     regenerated = False
     declined = False
@@ -408,7 +420,7 @@ async def chat(
     try:
         async with AsyncExitStack() as stack:
             agent = Agent(
-                agent_model(),
+                agent_model(reasoning),
                 instructions=SYSTEM_PROMPT,
                 toolsets=await connect_toolsets(
                     stack, bearer_token(http_request), allowed, retried),
@@ -523,6 +535,11 @@ async def chat(
             # worth looking at.
             "regenerated": regenerated,
             "ungrounded": declined,
+            # Which reasoning budget answered. Present on every row, so a
+            # receipt says not only what ran but what it was allowed to spend —
+            # and so a beat that changes behaviour can be read against the
+            # budget it had rather than guessed at afterwards.
+            "reasoning": reasoning,
             # Which skills shaped this answer's wording. Present on every row
             # while the feature is on, empty when nothing was active, and absent
             # altogether when SKILLS_ENABLED is off — so a trail written with
