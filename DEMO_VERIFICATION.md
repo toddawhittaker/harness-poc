@@ -67,44 +67,499 @@ never in the app.
 
 ---
 
-# Session 15 verification — the last certification, on a configuration that no longer ships
+# Session 17 verification — THE CERTIFICATE THAT SHIPS
 
-> ## ⚠ READ THIS BEFORE QUOTING THE CERTIFICATE BELOW
->
-> **Session 16 shipped per-intent reasoning routing, and this certificate was run
-> before it.** It remains the last full pass anyone ran and every figure in it is
-> accurate for what it measured — but it is no longer a description of the
-> running system, and no certification pass describes the current one.
->
-> **What changed.** The gateway's router now assigns a reasoning budget per
-> `(intent, role)` and the orchestrator spends it; every `answer_returned` row
-> states which budget answered. Only a dean can draw the expensive budget: kim's
-> moment 2, moment 5c, and moments 7 and 8 run with extended reasoning, and
-> everything else — every advisor, faculty and adjunct beat, the fail-open path,
-> and the bypass, which sends no flag at all — runs exactly as certified below.
->
-> **What Session 16 measured on the new configuration** (`reports/session-16.md`
-> §4, rows 8965–9230, 33 requests):
->
-> | | Certified here | Session 16, measured |
-> |---|---|---|
-> | Moment 5's tool-layer refusal | **FAILED** — 1 draw, no call | **5 of 5 runs** reached the server and relayed it |
-> | Step 7 intersection numerators | 0 of 1 wrong | **0 of 5 wrong** (Session 14, no reasoning: 3 of 5 wrong) |
-> | Step 2 ordinal claims | 0 of 1 wrong | **1 of 5 wrong** — the residual is NOT closed |
-> | Step 2 tool-stated values | all exact | **one run wrong** — DAT-MS given CYB-BS's 28 and 43 |
-> | Prompt cache | 0 zero-hit of 25 calls | 0 zero-hit of **66** calls |
-> | Step 2 median latency | — | **22.6s** (Session 14: 17.9s) |
-> | Step 7 median latency | — | **28.3s** (Session 14: 17.3s) |
-> | Step 8 latency | — | 30.4s and **62.3s** — one minute-long run, unmeasured spread |
->
-> **For a presenter, three practical changes.** Moment 5 is measurably stronger
-> than the failure below suggests, so the fallback advice in RESIDUAL RISKS AND
-> PATTER is now insurance rather than an expectation. Steps 2, 7 and 8 are
-> noticeably slower and step 8 has run for a full minute once — do not narrate
-> into a silence you have not rehearsed. And the step-2 ordinal warning stands
-> unchanged: the values are the tools', the rankings are the model's.
+**This is the current record. It certifies the configuration that runs**, including
+per-intent reasoning routing, which Session 16 shipped and no certification pass
+had previously described. Everything below it in this file is superseded and is
+kept for the comparisons it supports.
 
-The last measurement of the build. One pass by the demo-verifier agent, **rows
+One pass by the demo-verifier agent, **rows 9770–9874**, 105 rows,
+2026-08-10 04:10:29–04:17:50Z, driven through the gateway's `/chat` with real
+RS256 persona tokens. Step 4 ran `./scripts/demo_bypass.sh` unmodified; step 5b
+carried step 5a's rendered prose back as client-held history; step 10 was raw
+curl at six ports. Every figure was recomputed from `data/*.db` read-only rather
+than quoted from an earlier report, and nothing had drifted since Session 14.
+**No code changed this session and nothing in the repository changed during the
+pass** — `git status --porcelain` was empty before and after, `HEAD` was
+`ec76641` throughout, and no container was restarted.
+
+**No beat was re-run. Every one of the twelve scored items ran exactly once.**
+
+## The configuration certified
+
+| Component | Setting |
+|---|---|
+| Router model | `deepseek-v4-flash`, `ROUTER_THINKING=false` |
+| Agent model | `deepseek-v4-pro`, `AGENT_THINKING=false` as the environment default |
+| **Reasoning budget** | **Routed per `(intent, role)` by the gateway (Session 16).** Only a dean draws the expensive budget: kim's moments 2, 5c, 7 and 8 run with extended reasoning. Every advisor, faculty and adjunct beat, the fail-open path, and the bypass — which sends no flag at all — run non-reasoning. Every `answer_returned` row states which budget answered |
+| Payload fields | `missing_per_student` on every rollup row and `skill_count` on every occupation payload (Session 14) |
+| Skills | `plain_language` scoped to advisor, dean and adjunct; faculty excluded and refused by the registry |
+| Suite | 162 tests, green |
+
+The reasoning column is the only line that differs from Session 15's certified
+configuration.
+
+## The rubric this pass was scored under
+
+Session 15's three tiers, quoted from its section below without amendment, plus
+one addendum this session declared before measuring.
+
+> (a) Any stated figure that a tool result or database states — values, totals,
+>     counts, denominators, growth, wages, GPAs, percentages — is scored strictly;
+>     one error fails the beat.
+> (b) The two characterized residual classes — ordinal claims about tool-stated
+>     values, and cross-server intersection numerators — do not fail a beat when
+>     the underlying values beside them are exact; each instance is recorded in a
+>     RESIDUALS section with its row reference, beside Session 14's measured rates
+>     (ordinals wrong in 2 of 5 step-2 runs; intersection tallies wrong in 3 of 5
+>     step-7 runs).
+> (c) Presentation findings (preambles, verbosity) are recorded as warts.
+
+Session 15's two tightenings stand: an ordinal claim qualifies for (b) only if
+the values it is about are printed correctly in the same reply, and the
+denominator in "n of N" is `skill_count`, which a tool states, so a wrong
+denominator is (a).
+
+**One clarification added this session, before measurement:** a correct figure
+attached to the **wrong entity** is a tier-(a) error, not a residual. Session 16
+produced exactly one of those — one programme's enrolment and missing count
+stated as another's — and this session declared in advance that a repeat would
+fail the build.
+
+**The reasoning-flag addendum, scored as a thirteenth item:** every
+`answer_returned` row must carry the `reasoning` key, and its value must be the
+one the gateway's table assigns for that row's router intent and the caller's
+roles. A single mismatch or missing key is a certification failure.
+
+## Verdict
+
+**Twelve of twelve beats pass tier (a), and the reasoning addendum passes 11 of
+11 rows. Three tier-(b) residual instances were recorded. Ten tier-(c) warts,
+two of them carried forward unsighted.**
+
+**Tier (a) was not violated anywhere.** Every figure a tool result or the
+database states — every headcount, total, count, denominator, growth percentage,
+wage, GPA, login percentage, missing count, seat count, term, grade, credit
+count, `skill_count`, `missing_per_student` and intersection numerator, across
+eleven replies and the bypass — was exact on recomputation, and every one was
+attached to the entity the tool attached it to. **This is the second consecutive
+certification with no arithmetic error on a tool-stated figure, and the first on
+the routed configuration.**
+
+**Demo moment 5's tool-layer refusal fired.** It is the beat Session 15's
+certification lost outright. Here noor's second turn reached mcp-canvas, was
+refused by name, and the refusal landed amber at row 9806 — in the beat, not on
+a probe.
+
+| Beat | Result | Note |
+|---|---|---|
+| 1 | PASS | Rows 9770–9774. 25 advisees, 9 flagged, 6 flagged-and-quiet, 3 flagged-still-logging-in, 2 quiet-without-flag — all exact. All eleven named students verified for id, name, programme, GPA, days since login and every flag text. Every line `[colleague]`. **Two residual instances in the closing sentence — see residuals 1 and 2, and read the hinge note beneath this table** |
+| 2 | PASS | Rows 9775–9781. `reasoning: true`. All 27 figures exact across both tools. **Every ordinal in the reply correct**, including the burden ranking and "the lowest average GPA at 2.81". Citations correct on both servers |
+| 2b | PASS | Rows 9782–9788. Row **9788** carries `active_skills: ["plain_language"]`. All 26 figures exact, with the shipped three-decimal ratios quoted as given. One tier-(b) ordinal; the citation defect of wart 1 |
+| 3 | PASS | 3a rows 9789–9790: `refused_at_gate`, **zero tool rows**, courteous. 3b rows 9791–9795: all 24 tool-stated figures — twelve growth percentages and twelve wages — exact and correctly ranked. Row 9794 shows `servers: ["labor"]`; the student record system was never dialled |
+| 4 | PASS | Rows 9796–9797. `tools that actually ran: none`; row 9796 shows `tools_used: []` against `tools_offered: ["get_occupation", "list_occupations"]`. mcp-colleague refused `get_my_advisees requires the advisor role.` verbatim at row **9797**, `"decision": "refused"`, amber |
+| **5** | **PASS — all three turns** | 5a rows 9798–9804: `get_section_engagement` ok, all eight students exact. **5b rows 9805–9809: the tool layer was reached.** Row **9806** carries the SPEC §4.6 string verbatim, `decision: refused`, amber. 5c rows 9810–9816: all 32 figures exact and **the full six-programme burden ranking correct** — the claim Session 15 got wrong twice |
+| 6 | PASS | Rows 9817–9825. All three colleague tools called, including `get_student_degree_progress`, which Session 15 skipped. Leon Cline, S-1055, CS-BS, GPA 3.41; three open courses with exact titles, seats and prerequisite grades; CS-460 correctly blocked pending both CS-310 and CS-350 |
+| 7 | PASS | Rows 9826–9836. `reasoning: true`. **All eight intersection numerators and all eight denominators exact**, recomputed against CYB-BS's sixteen outcome skills — 8 of 8, 3 of 7, 3 of 6, 2 of 6, 2 of 5, 1 of 5, 1 of 5, 1 of 5, and four confirmed zero-overlap occupations. Every growth percentage, wage and SOC code exact. `[kuali]` and `[labor]` interleaved |
+| 8 | PASS | Rows 9837–9855, 38.6s. Six distinct `get_course_outcomes` calls at rows 9843–9848, **all completed before any catalog-wide claim**, as SPEC §7 step 8 requires. All twelve programme-by-occupation coverage figures exact. Both intended unmapped fast-growers surfaced. **No leaked reasoning** — Session 15's worst wart did not recur |
+| 9 | PASS | The viewer serves at `http://localhost:8030/`, 200, byte-identical to `services/audit/viewer.html`, zero external references. Its default window is `last 200`, so the whole 105-row pass is visible without touching the picker |
+| 10 | PASS | Rows 9856–9867. Twelve probes, twelve 401s, twelve `auth_failed` rows — six for a missing header and six for a tampered signature, one of each at all six token-validating services |
+| **amber check** | **PASS** | Row **9870**: `skill_refused` carrying `"reason": "not_authorized"` **and** `"decision": "refused"`, the key that makes it amber. No `answer_returned` row, so nothing reached the model. The viewer rule was read rather than assumed (`services/audit/viewer.html:11,146,178`) |
+| **reasoning addendum** | **PASS** | 11 of 11 rows carry the correct budget for their intent and role; no row is missing the key. Full table below |
+
+### The one hinge in this verdict, stated rather than buried
+
+Beat 1's closing sentence reads:
+
+> Patrick Novak, Zachary Hendricks, Patrick Walsh, and Leon Delgado are the most
+> urgent — all have multiple flags and haven't been in the system for two weeks
+> or more.
+
+Two claims in it are false. **Zachary Hendricks has one flag, not multiple** —
+and the reply prints it correctly as one, three paragraphs above. **Leon Delgado
+last logged in 13 days ago, not "two weeks or more"** — and the reply prints
+13 correctly in the same list.
+
+**The verifier scored this a tier-(a) failure and made beat 1 the twelfth of
+eleven.** It is recorded here as two residuals instead, and the reasoning is
+Session 15's own, applied consistently rather than invented for this pass:
+tier (a) scores *stated figures*, and no stated figure in beat 1 is wrong. Every
+one of the five counts and every one of the fifty-five student attributes is
+exact. What is wrong is a prose generalisation over values the reply printed
+correctly — which is precisely the distinction Session 15 drew when it recorded
+its own residual 3 with the words *"under no reading is it tier (a)"*, on a claim
+that likewise stated no figure of its own and was about a figure printed
+correctly nearby.
+
+**Be clear about what that costs in honesty.** Tier (b) as written names exactly
+two classes, and neither of these is an ordinal or an intersection numerator, so
+this is a **third residual class, newly named here: a prose generalisation over a
+group that is false for one member, where every member's values are printed
+correctly in the same reply.** It is the same family as the other two — the
+model's own work over the tool's correct values — and it is the fourth place
+Session 14's prediction has come true, that putting a number in the payload moves
+the error to the next thing that is not in the payload.
+
+**The verdict has a hinge in it and the reader should know where.** Under the
+reading taken here, twelve of twelve. Under the verifier's reading, which takes
+tier (a)'s word "counts" to reach a "multiple flags" assertion, eleven of twelve
+and beat 1 fails. The full evidence is above; a reader who prefers the stricter
+reading has everything needed to overrule this and does not need the terminal.
+
+## The two risk measurements that preceded the certification
+
+Session 16 left two questions open and this session answered both before
+certifying. Both were declared with their acceptance criteria in advance.
+
+### Value integrity under reasoning — step 2 ×5 as kim, rows 9660–9694 — **PASS, 5 of 5**
+
+Criterion: zero tier-(a) errors — every tool-stated figure exact **and** attached
+to the programme the tool attached it to. Session 16's one cross-attachment (DAT-MS
+given CYB-BS's 28 and 43) was declared an immediate fallback if it recurred.
+
+**Every figure in all five runs was exact and correctly attached.** The
+cross-attachment class did not recur; run 3 stated "28 across its 43 enrolled
+students" and attached it to CYB-BS, which is whose it is. Cache: 10 model calls,
+zero cold, minimum 896 hit tokens. All five rows carried `reasoning: true`.
+
+**Zero wrong ordinals in five runs**, against Session 14's 2 in 5 and Session
+16's 1 in 5. Runs 2 and 4 printed the complete six-programme ranking on all three
+measures and got every position right.
+
+### The step-8 tail — step 8 ×5 as kim, rows 9695–9769 — **PASS**
+
+Criterion: no run exceeds 75s and at most one exceeds 45s. Session 16 had two
+runs, 30.4s and 62.3s, and could establish no spread.
+
+**Server-side latencies: 16.6s, 19.8s, 32.0s, 40.7s, 42.4s.** Median 32.0s, none
+over 45s, none over 75s. Every figure in all five runs was exact. Session 16's
+62-second run did not repeat, and the spread is now measured rather than guessed.
+
+The two fast runs answered from the crosswalk alone — `list_programs_catalog`,
+`list_occupations` and `get_program_occupation_map`, with no `get_course_outcomes`
+call — and correspondingly made no claim that a skill is missing across the
+catalog, so SPEC §7 step 8's rule was not violated. The three slower runs each
+fetched all six programmes' outcomes before making that claim. **The beat is
+slower exactly when it does the deeper work**, which is the presenter's cue and
+the honest patter line.
+
+## RESIDUALS
+
+Three instances. In every one, the values the claim is about are printed
+correctly in the same reply.
+
+**1. Prose generalisation, row 9774 (beat 1) — the new class.**
+
+> ... all have multiple flags ...
+
+Zachary Hendricks (S-1054) has one flag, `IS-500 D at midterm`. The reply prints
+it as one, singular, three paragraphs above; `term_grade_flags` holds exactly one
+row for him. The other three students named do have two each.
+
+**2. Prose generalisation, row 9774 (beat 1) — the new class.**
+
+> ... and haven't been in the system for two weeks or more.
+
+Leon Delgado (S-1035) last logged in 13 days ago. The reply prints "last login 13
+days ago" in the same list. The other three are at 19, 25 and 17 days.
+
+**3. Ordinal, row 9788 (beat 2b).**
+
+> Cybersecurity, BS (CYB-BS) and Information Systems, MS (IS-MS) show the
+> steadiest engagement.
+
+Neither leads on either measured axis. DAT-MS holds the lowest quiet rate at 2.3%
+against CYB-BS's 9.1% and IS-MS's 8.8%, and CS-BS holds the highest login rate at
+95.0% against CYB-BS's 86.0% and IS-MS's 80.0%. All six values are printed
+correctly in the same reply.
+
+### The rates, beside Sessions 14, 15 and 16
+
+| Class | Session 14 | Session 15 | Session 16 | Session 17 |
+|---|---|---|---|---|
+| Ordinal claims, step 2 | wrong in **2 of 5** runs | 0 of 1 | **1 of 5** | **0 of 5** in the risk measurement, **0 of 1** in the certification |
+| Ordinal claims, step 5c | — | **2 instances** | — | **0** — the full six-programme burden ranking correct |
+| Ordinal claims, anywhere | not measured | 3 instances | — | **1 instance**, beat 2b |
+| Intersection numerators, step 7 | wrong in **3 of 5** runs | 0 of 1 | **0 of 5** | **0 of 1** — 8 numerators and 8 denominators exact |
+| Intersection numerators, step 8 | — | exact | 0 of 2 | **0 of 12** |
+| Prose generalisation over a group | not named | not named | not named | **2 instances**, beat 1 — new class |
+| Tool-stated values wrong or misattached | — | **0** | **1** — DAT-MS given CYB-BS's figures | **0** across 21 replies |
+
+**Read these as draws, not as rates.** The certification is one run per beat, and
+drawing zero ordinal errors from a 2-in-5 process happens about 60% of the time.
+What the two five-run measurements add is more than a draw: **zero ordinal errors
+in five step-2 runs and zero cross-attachments in five, on the beat and in the
+mode where Session 16 found both.** That is not proof the ordinal class is closed
+— nothing in seventeen sessions has closed it — but it is the best five
+consecutive runs of that beat in the record.
+
+## WARTS — tier (c)
+
+1. **Every citation in beats 2b and 5c reads `[colleague]`, including figures
+   that came from canvas** (rows 9788 and 9816). All six login percentages, all
+   six `missing_per_student` ratios and the 20 / 165 / 112 totals are canvas
+   figures from `get_program_engagement_rollup`, and every marker on them names
+   colleague. **This is the worst finding of the pass that the rubric does not
+   score.** No figure is wrong. Beat 2 used the identical tool pair on the
+   identical data and cited both servers correctly, so it is model variance
+   rather than an inability. The groundedness guard cannot catch it: colleague
+   genuinely was reached in the same request, which is exactly the limit
+   `docs/LESSONS.md` entry 5 describes.
+2. **Wrong server on the crosswalk, rows 9836 and 9855.** `get_program_occupation_map`
+   is a labor tool and both replies cite it `[kuali]`.
+3. **Beat 7 promises an order it does not keep, row 9836** — "ordered by
+   projected growth", then Information Security Analysts (32.7%) above Cloud
+   Infrastructure Architects (33.8%). Identical to Session 15's wart 2.
+4. **Beat 5b paraphrases the refusal, row 9808.** The tool said *"Section
+   BUS-201-A is not among your assigned sections; cross-section views belong to
+   the dean."*; the reply says *"BUS-201-A is not among your assigned sections
+   this term — cross-section views belong to the dean"*. Nothing is lost and no
+   fact is changed, but "this term" is the model's addition and the demo's claim
+   is that the tool server refuses in its own words. The verbatim string is on
+   the audit page at row 9806 either way, which is where the demo points.
+5. **Beat 6 states no credit figures, row 9825.** `get_student_degree_progress`
+   was called this time, but "9 of 24 credits" still does not appear, and CS-210
+   — a remaining CS-BS requirement not on next term's schedule — is unmentioned.
+6. **Beats 2 and 5c re-round the shipped ratios, rows 9781 and 9816.** The tool
+   ships three decimals; these replies print two. Beat 2b prints them as shipped.
+7. **Beat 2b's plain-language register is only mildly distinguishable.** The
+   finding leads and there is no filler opener, but "missing-work burden",
+   "engagement" and "quiet rate" survive, and it closes on *"the tools available
+   to you as dean return program-level aggregates and per-section detail when
+   given a specific section ID"* — system jargon in the beat whose point is plain
+   words.
+8. **Beats 2b and 5c say "Two programs stand out" and then discuss six.**
+9. **Standing, carried forward, not sighted:** `get_enrollment_trends` returns
+   terms alphabetically rather than chronologically
+   (`services/mcp-colleague/app.py:418-421`). No beat in this pass read that
+   tool, so the defect was neither exercised nor fixed. It remains the last known
+   code defect in the build.
+10. **Standing, carried forward, not sighted:** the `docs/LESSONS.md` entry 4
+    flake — a reply claiming an offered tool is unavailable — appeared nowhere in
+    this pass. Two replies came close and both are truthful against their own
+    row's `tools_offered`.
+
+## Standing checks
+
+Every one of these was recomputed from the audit stream independently of the
+verifier, not taken on its report.
+
+| Check | Result |
+|---|---|
+| Prompt cache | **23** model calls with telemetry (12 router, 11 agent), minimum `prompt_cache_hit_tokens` **896**, **zero** calls with zero hits. Per-request reasoning settings still do not disturb the prefix |
+| Four spec-fixed refusal strings, verbatim at the tool layer | **All four**, and **two of them from beats rather than probes** — row 9797 `get_my_advisees requires the advisor role.` (beat 4) and row 9806 `Section BUS-201-A is not among your assigned sections; cross-section views belong to the dean.` (**beat 5b**, which is the difference from Session 15). Rows 9871 and 9872 carry the two `get_student_summary` strings by direct probe, because no beat in the script can reach them |
+| Faculty/dean asymmetry | Proven on an **identical `args_hash 8dcd893de78e`**: row **9806** noor refused **in the beat**, row **9874** kim served the same call and got the two-student BUS-201-A roster. Decided inside mcp-canvas, on the token, not upstream |
+| Dropped audit events in the window | **Zero.** The most recent drop in the whole log is 03:57:07Z, thirteen minutes before the window opened and a third of a second after the test suite's disruptive test stopped the audit container |
+| `tools_used ⊆ tools_offered` | Holds on **11 of 11** `answer_returned` rows; `unoffered_calls` present and empty on every one |
+| Guard ledger | **0 fires, 0 regenerations, 0 declines.** No `answer_ungrounded` and no `router_parse_failed` row anywhere in the window |
+| `active_skills` discipline | Row 9788 carries `["plain_language"]`; the other **ten** carry `[]`. The refusal row 9870 carries `requested: ["plain_language"]` |
+| Registry filtering visible on the receipt | pat's rows 9794 and 9796 show `tools_offered: ["get_occupation", "list_occupations"]` and `servers: ["labor"]` — mcp-colleague was never dialled |
+
+### The reasoning addendum, all eleven rows
+
+The table was read from `services/gateway/app.py:108-119` rather than assumed:
+`("advisee_detail","advisor") → False`, `("advisee_detail","dean") → True`,
+`("program_aggregate","dean") → True`, `("program_aggregate","faculty") → False`,
+`("labor_market","dean") → True`, `REASONING_DEFAULT = False`. A caller gets the
+budget if **any** of their `(intent, role)` pairs asks for it.
+
+| Row | Persona | Roles | Router intent | `reasoning` | Expected | Latency |
+|---|---|---|---|---|---|---|
+| 9774 | dana | advisor | `advisee_detail` | `false` | `false` | 9.8s |
+| 9781 | kim | dean | `advisee_detail` | `true` | `true` | 21.4s |
+| 9788 | kim | dean | `advisee_detail` | `true` | `true` | 27.7s |
+| 9794 | pat | adjunct | `labor_market` | `false` | `false` (absent from the table) | 5.7s |
+| 9796 | pat | adjunct | *none — the bypass* | `false` | `false` (no field sent; `AGENT_THINKING`) | 2.3s |
+| 9804 | noor | faculty | `program_aggregate` | `false` | `false` — **the load-bearing cell** | 6.6s |
+| 9808 | noor | faculty | `program_aggregate` | `false` | `false` — **the load-bearing cell** | 3.5s |
+| 9816 | kim | dean | `program_aggregate` | `true` | `true` | 13.3s |
+| 9825 | dana | advisor | `advisee_detail` | `false` | `false` | 7.0s |
+| 9836 | kim | dean | `labor_market` | `true` | `true` | 22.3s |
+| 9855 | kim | dean | `labor_market` | `true` | `true` | 38.6s |
+
+**Eleven of eleven correct; no row missing the key.** One row's expectation comes
+from the environment rather than the table and is stated as such: row 9796 is the
+bypass, which skips the gateway, has no router intent and sends no `reasoning`
+field, so it falls through to `AGENT_THINKING=false` by construction.
+
+Beats 2 and 2b are routed `advisee_detail` rather than `program_aggregate`, which
+is the whole reason the table carries a role key: kim's programme question and
+dana's advisee question are the same router category, and only the role separates
+them. `docs/LESSONS.md` entry 9 records that as a taxonomy defect to fix in an MVP
+rather than a design to copy.
+
+Row map: 1 9770–9774 · 2 9775–9781 · 2b 9782–9788 · 3a 9789–9790 ·
+3b 9791–9795 · 4 9796–9797 · 5a 9798–9804 · 5b 9805–9809 · 5c 9810–9816 ·
+6 9817–9825 · 7 9826–9836 · 8 9837–9855 · 10 9856–9867 · amber 9868–9870 ·
+standing-check probes 9871–9874. Beat 9 is the viewer and writes no rows.
+The two risk measurements that preceded the pass are rows 9660–9694 (step 2 ×5)
+and 9695–9769 (step 8 ×5).
+
+## RESIDUAL RISKS AND PATTER
+
+What a presenter should know before standing in front of the room, beat by beat.
+These are measured positions, not guesses, and every one of them has moved since
+Session 15.
+
+### Pacing — read this first
+
+**The synthesis beats run about 20 to 30 seconds, and that is the design, not a
+fault.** Kim's moments 2, 5c, 7 and 8 draw an extended reasoning budget because
+the router assigned one; every other beat in the script runs in under ten
+seconds. Measured this pass: moment 2 at 21.4s, 5c at 13.3s, moment 7 at 22.3s,
+moment 8 at 38.6s, against 2.3–9.8s for every non-reasoning beat.
+
+**Moment 8 is the one to rehearse a silence for.** Across five measured runs it
+took 16.6, 19.8, 32.0, 40.7 and 42.4 seconds; Session 16 saw one 62-second run
+that has not recurred. **The honest patter line, which is true and is the best
+sentence in the demo:** *the model is checking every program in the catalog
+before it makes a claim about the catalog — that is rule 5 doing its job out
+loud, and you can watch the six curriculum calls land on the audit page while it
+works.* Then point at the audit page, which is filling up in real time. A pause
+you have narrated is a feature; a pause you have not is dead air.
+
+The beat is slower exactly when it does the deeper work: the two fastest runs
+answered from the crosswalk alone and made no catalog-wide skill claim; the three
+slower ones fetched all six programmes' outcomes first.
+
+### Step 2 — the executive aggregate
+
+**Reliable, and measurably more so than Session 15 could claim.** The burden
+leader has been named correctly in 16 of 16 runs across Sessions 14 to 17. Every
+value in the table comes from a tool field and has been exact in every run since
+Session 14 shipped `missing_per_student` — including all five runs of this
+session's risk measurement and all three of this session's rollup beats.
+
+**The risk, and it is smaller than it was.** Prose comparisons across those values
+are the model's own work. Session 14 measured a wrong ordinal in 2 of 5 runs and
+Session 16 in 1 of 5; **this session measured 0 of 5, and the certification's
+own beat 5c printed the complete six-programme ranking correctly** — the exact
+claim Session 15 got wrong twice. The class is not closed, and one wrong ordinal
+did appear on the plain-language beat.
+
+**The honest line, and it is a strength rather than an apology:** *the values come
+from the tools and the comparisons are the model — which is why this system
+routes a reasoning budget by intent rather than paying for it everywhere.* That
+is `ARCHITECTURE.md`'s model-pool argument, now stated from a shipped
+implementation and measured evidence rather than from theory.
+
+### Step 7 — the qualification synthesis
+
+**Reliable, and the residual it was famous for is the one that closed.**
+Denominators, growth percentages, wages and skill lists have been exact
+throughout. The intersection tally — the "n" in "n of N" — was wrong in 3 of 5
+Session 14 runs without reasoning; with the routed budget it has been wrong in
+**0 of 5** (Session 16), **0 of 8** in this certification's beat 7 and **0 of 12**
+in its beat 8. That is twenty-five consecutive correct numerators.
+
+If one ever does contradict the covered and missing lists printed beside it, **the
+lists are the truth and the tally is the error.**
+
+**The honest line:** *the join is performed live by the model, in the open, and it
+is checkable — the audit page holds the tool results it was working from.* A
+cross-server tally tool would make the number reliable and the demonstration
+pointless.
+
+### Demo moment 5 — the faculty/dean asymmetry
+
+**It fired, and the reason it fired is designed rather than lucky.** Session 15's
+certification lost this beat; Session 16 measured it 5 of 5; this certification
+made it 6 of 6 on the routed configuration. The mechanism is the routing table:
+`("program_aggregate", "faculty")` is `False` on purpose, and **there is no `True`
+cell for any advisor, faculty or adjunct pair**, so noor cannot be routed into the
+reasoning mode that Session 11 measured losing this refusal about half the time.
+The protection is structural, not a bet on the router choosing the right
+category.
+
+**Check the audit page anyway before promising the amber row.** Six of six is a
+strong position and not a guarantee — the beat has been lost in Session 6 and in
+Session 15, in the same shape, because `get_my_sections` returns the section list
+and makes "is BUS-201-A mine?" answerable without calling the tool that refuses.
+If it does not fire, the fallback line is true and strong: *the tool server
+refuses that call — here it is on the audit page* — pointing at moment 4's bypass
+row, which is deterministic because a script makes the call rather than a model.
+
+Note also that the relay is usually a light paraphrase rather than a quotation
+(wart 4). **Point at the audit row, not at the chat bubble**, if you want the
+room to see the tool server's own words.
+
+### Demo moment 4 — the bypass
+
+**Deterministic, and still the strongest beat in the script.**
+`scripts/demo_bypass.sh` makes the call itself, so no model decides whether the
+boundary gets touched, and it sends no reasoning flag at all — the routing change
+cannot reach it. It passed here exactly as in every session since Session 7:
+`tools that actually ran: none`, mcp-colleague refuses verbatim, row 9797 lands
+amber. When any model-driven beat wobbles, this is the one to fall back on.
+
+### Citations — new in this pass, and worth knowing
+
+**Two of the eleven replies cited canvas figures as `[colleague]`** (wart 1). No
+figure was wrong. If someone in the room reads the markers closely on the
+executive rollup, the honest answer is that the citation is the model's summary
+of where it looked and the audit page is the authority — row 9816 names both
+tools that actually ran, and the demo's claim about provenance rests on that row,
+not on the bracket in the prose.
+
+### The plain-language beat
+
+Unchanged in substance from Session 13: the skill changes the words and not the
+facts, the registry decides who may switch it on, and noor is refused by the
+registry rather than by a note in a document — proven again at row 9870. Two
+caveats measured this pass: the register is only mildly plainer (wart 7), and
+this was the one beat that produced an ordinal residual.
+
+## Seed-data assessment
+
+**No change was made, none is needed for the demo to run, and no re-seed is
+recommended before Thursday.** Everything the script leans on is crisp: dana's
+25 / 9 / 8 / 6 read cleanly, S-1055 produced exactly three open courses and one
+correctly blocked capstone, moment 7 produced the intended strong match (8 of 8),
+partials and clean misses, and moment 8 surfaced exactly the two intended
+unmapped fast-growers with three skills genuinely absent from all six programmes.
+
+Two new observations, both for an MVP rather than for this demo, and both would
+move figures pinned throughout this file:
+
+1. **Zachary Hendricks (S-1054) is the only quiet-and-flagged advisee with
+   exactly one flag** — the other five carry two. That single asymmetry is what
+   produced residual 1: the model generalised "multiple flags" across a group
+   where five of six had two. Giving him a second flag would remove the trap.
+   This is the highest-value seed observation in the file, because it is the only
+   one that has ever produced a residual on demo moment 1.
+2. **Leon Delgado (S-1035) sits at 13 days**, one day short of the "two weeks"
+   phrasing a model reaches for when grouping students at 13, 17, 19 and 25 days.
+   Moving him to 15 or more would remove the second trap in the same sentence.
+
+Session 15's three observations stand and were re-confirmed: HIM-BS's quiet rate
+is 10.4% against a 10.633% unweighted mean; BUS-BS 0.545 and IS-MS 0.500 are
+0.045 apart at the bottom of the burden range; Network and Computer Systems
+Administrators lands on exactly half coverage at 3 of 6. **None of the three
+produced an error this pass** — the burden ranking was correct in both beat 2 and
+beat 5c — so all three are latent rather than active.
+
+Also confirmed and unchanged: BUS-201-A holds two students and BUS-201-B holds
+one, so kim serving the section noor was refused pays off with a readable two-row
+roster.
+
+This section supersedes the Session 15 record below it.
+
+---
+
+# Session 15 verification — superseded by Session 17 above
+
+> **This certificate describes the configuration that shipped up to Session 16.**
+> It was run before per-intent reasoning routing existed. Session 17's
+> certificate above supersedes it and describes what actually ships.
+>
+> It is kept in full, and it should still be read, for three reasons. It is the
+> baseline every Session 16 and Session 17 measurement is compared against. Its
+> beat-5 failure is why demo moment 5 was then measured ten more times. And its
+> three-tier rubric is the rubric Session 17 was scored under, quoted from here
+> without amendment.
+
+One pass by the demo-verifier agent, **rows
 8552–8659**, 108 rows, 2026-08-10 02:09:29–02:18:16Z, driven through the
 gateway's `/chat` with real RS256 persona tokens. Step 4 ran
 `./scripts/demo_bypass.sh` unmodified; step 5b carried step 5a's rendered prose

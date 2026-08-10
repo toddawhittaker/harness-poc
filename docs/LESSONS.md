@@ -212,6 +212,28 @@ expect to re-measure whenever anything else changes. A prompt rule is a
 probability, not a guarantee, and it should never be the only thing standing
 between a user and a wrong answer.
 
+### The final tally
+
+The build ended after seventeen sessions. This is where the technique stands.
+
+| | Count | Result |
+|---|---|---|
+| Payload fields shipped (Sessions 8–14) | **8** | **8 held.** No value any of them states has ever been wrong in any run afterwards |
+| Prompt-only fixes aimed at the same defects | 4 | 0 held. Each bought a partial improvement that decayed, moved, or introduced a defect elsewhere |
+| Reasoning budget, routed per intent (Sessions 16–17) | 1 | **Closed one residual class and not the other.** Entry 9 has the numbers |
+| Certification passes with no wrong tool-stated figure anywhere | **2 of 2** since the eighth field shipped | Sessions 15 and 17 |
+| Residual classes still open at the end | **3** | Ordinal claims; cross-server intersection numerators, now clean for twenty-five consecutive tallies under a reasoning budget; and prose generalisations over a group, named for the first time in Session 17 |
+
+**The technique never failed and it never finished.** Eight for eight is the
+strongest result in the record and it is also the reason the boundary matters:
+each field closed a number and exposed the next thing that is not a number — a
+rank, then a join, then a quantifier in a summary sentence. The last
+certification's only defects were of exactly that shape. A team applying this
+should expect the same shape of ending: the arithmetic goes quiet, and what is
+left is the model's prose about arithmetic that is correct on the screen beside
+it. Measure that, write down its rate, and tell the person presenting which
+numbers are the tools' and which are the model's.
+
 ---
 
 ## 5. The groundedness guard: what it checks, what it cannot
@@ -640,6 +662,51 @@ kim's programme question from dana's advisee question, or noor's section questio
 from kim's rollup. **That is a taxonomy defect, not a design.** An MVP splits the
 intents — `section_engagement` from `program_rollup`, curriculum synthesis from a
 labour-market lookup — and budgets by intent alone, with no role in the table.
+
+### Session 17: the routed configuration was certified, and this is how it ended
+
+**The routing shipped, and Session 17 certified it.** Session 16 merged the
+experiment on a ruling but left it described by no certification pass; Session 17
+ran one full demo-verifier pass on the routed configuration — twelve scored
+beats, no re-runs — and it passed twelve of twelve on tier (a), with the
+reasoning budget correct on all eleven `answer_returned` rows. It is the second
+consecutive certification in which no figure a tool or the database states was
+wrong anywhere, and the first on the configuration that actually runs.
+
+**What each residual class did under the routing, measured across twenty-one
+replies and ten dedicated runs.** *Cross-server intersection numerators*: closed
+in practice — 0 of 5 in Session 16, then 0 of 8 in the qualification beat and 0
+of 12 in the gap beat, twenty-five consecutive correct numerators against Session
+14's 3-in-5 wrong without reasoning. *Ordinal claims*: not closed, but the best
+stretch in the record — 0 of 5 in a dedicated five-run measurement of the beat
+where Session 14 measured 2 in 5 and Session 16 measured 1 in 5, and the full
+six-programme ranking correct on the rollup beat that Session 15 got wrong twice.
+One ordinal residual remained, on the plain-language beat. *Tool-stated value
+integrity*: clean — Session 16's single cross-attachment, one programme's
+enrolment stated as another's, did not recur in five runs of the same beat in the
+same mode. *And a third class appeared*, which is Session 14's prediction coming
+true a fourth time: a prose generalisation over a group, false for one member,
+with every member's values printed correctly in the same reply.
+
+**The kill-criterion was corrected before the measurement, and the correction is
+part of the lesson.** Session 16's criterion had been *zero* ordinal claims, and
+by Session 17 it was clear that no configuration in sixteen sessions had ever met
+it, that three separate remedies had failed against that class, and that 1-in-5
+against a 2-in-5 baseline is not distinguishable in five draws — so ordinals were
+reclassified as a characterised tier-(b) residual and the criterion was moved to
+the thing the routing genuinely put at risk, tool-stated value integrity. **The
+correction was declared in writing before any run, which is the only reason it is
+a criterion and not a rationalisation** — the same discipline that made Session
+16's failure a real failure rather than a matter of taste.
+
+**The POC therefore ends with the router assigning a reasoning budget per task —
+`ARCHITECTURE.md`'s model-pool design, implemented, measured and certified.** The
+last certificate in `DEMO_VERIFICATION.md` describes a system in which a triage
+model decides what each question is worth before an execution model answers it,
+the expensive budget reaches only the beats that were shown to need it, and every
+receipt states which budget answered. That is not the whole of the model-pool
+argument — there is one execution model here, not a pool — but the mechanism the
+argument turns on is the table, and the table is the part that shipped.
 
 ---
 
