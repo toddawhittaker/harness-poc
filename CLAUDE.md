@@ -39,12 +39,27 @@ harness JWTs, which identity-stub signs with RS256.
 
 ## Working discipline
 
+- **`commit`, `push` and `merge` are the human's words, not yours.** Do not run
+  `git commit`, `git push`, `gh pr merge` or any merge unless the human says so
+  in that message. Asking for one does not authorise the next: "commit" means
+  commit and stop, not commit and push. A green CI run, a trivial diff, an
+  obvious next step and a previous instruction three messages ago are all *not*
+  permission.
+  - Default behaviour: make the change, leave it **unstaged** in the working
+    tree, and report what changed and what you verified. Leaving it unstaged
+    matters — `git diff` should show the human their own change, not a staged
+    one they have to go looking for.
+  - Session 17 got this wrong: fourteen commits in one day that were never
+    asked for. The work was fine and the presumption was not. Volume is the
+    tell — if you are about to commit for the third time without being asked,
+    you have stopped collaborating and started driving.
 - **Every change goes on a branch.** Never commit to `main` directly, including
   documentation. Branch from `main`, name it for the work (`ci-discipline`,
-  `fix-enrollment-trend-order`).
-- **Never merge without explicit confirmation.** Open the PR, report what is in
-  it and what CI said, and stop. Merging is the human's call every time, even
-  when CI is green and the change looks trivial.
+  `fix-enrollment-trend-order`). Creating a branch needs no permission; putting
+  commits on it does.
+- **Never merge without explicit confirmation.** Open the PR when asked to,
+  report what is in it and what CI said, and stop. Merging is the human's call
+  every time, even when CI is green and the change looks trivial.
 - **CI must be green before asking.** `ruff check`, gitleaks, the repo checks and
   `docker compose build` all run on every push (`.github/workflows/ci.yml`) and
   need no secrets. The 162-test suite needs a live stack and a paid key, so it
