@@ -46,3 +46,21 @@
 .watermark {
   display: none !important;
 }
+
+/* Logo size. Chainlit sizes the logo by WIDTH — `w-[150px]` on the login screen
+ * and `w-[200px]` on the welcome screen — so rendered height falls out of the
+ * aspect ratio. Chainlit's own logo is 1143x266 (4.30:1) and lands at 34.9px
+ * and 46.5px tall. Ours is a longer wordmark at 6.13:1, so the same widths made
+ * it ~30% shorter than the mark it replaced. Pin the height instead and let the
+ * width follow, which keeps the icon and the type at the size the surface was
+ * designed around. */
+img.logo {
+  width: auto !important;
+  max-width: 100%;
+}
+img.logo[class*="w-[150px]"] {
+  height: 35px !important;
+}
+img.logo[class*="w-[200px]"] {
+  height: 46px !important;
+}
