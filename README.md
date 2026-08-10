@@ -61,6 +61,13 @@ docker compose up --build
 That is enough. The four seed databases are committed, so no seeding step is
 needed for a first run.
 
+**On Linux, check your user id first.** The containers write into the
+bind-mounted `./data` as `${HOST_UID:-1000}:${HOST_GID:-1000}`, and identity-stub
+generates its signing key there on first boot. If `id -u` is not 1000, set
+`HOST_UID` and `HOST_GID` in `.env` to your own — otherwise identity-stub cannot
+write the key and restarts in a loop. macOS and Windows handle the mapping
+themselves and need nothing.
+
 | Surface | URL | What it is |
 |---|---|---|
 | Advisor Workspace | http://localhost:8080 | Chat application, warm theme |

@@ -1,0 +1,12 @@
+# Normalise line endings in text files on commit, check them out native. This
+# was added to a tree verified free of CRLF, so it renormalises nothing today —
+# it is here to keep a Windows clone from introducing any.
+* text=auto
+
+# The four seed databases and the audit sample are SQLite. Git detects them as
+# binary on its own; saying so explicitly means no autocrlf setting on any
+# platform can ever be tempted to rewrite a byte of them.
+*.db binary
+
+# Patches have to survive byte for byte or they stop applying.
+*.patch -text

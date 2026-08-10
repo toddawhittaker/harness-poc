@@ -848,3 +848,64 @@ against `__pycache__`, `*.pyc`, `.pytest_cache`, `.egg-info`, `.venv`,
 `.DS_Store`, or Chainlit's `.files/` and `.chainlit/translations/`. The
 `.gitignore` has covered them since the root commit, so the directories exist on
 disk and have never been tracked.
+
+### 12.9 Pre-push sweep
+
+A full-repository pass before publishing. **Nothing in it changed a certified
+path**, and the three fixes applied touch `README.md`, `ARCHITECTURE.md` and a
+new `.gitattributes` only.
+
+**Verified clean.** Secrets across HEAD and all 83 commits — the only key-shaped
+strings anywhere are `tests/test_auth.py:540-541`, the negative-auth suite's
+deliberate unsigned fixture. Every `${VAR}` in `docker-compose.yml` is documented
+in `.env.example` and vice versa, with no gaps in either direction. Every
+relative markdown link in every tracked `.md` resolves after §12.8's moves. No
+`TODO`, `FIXME`, `XXX` or `HACK` in code or config. No CRLF, no missing trailing
+newlines, no tracked cache or runtime junk, telemetry off in both Chainlit
+configs, 2.6 MB packed with no file needing LFS.
+
+**A fresh clone was tested rather than reasoned about.** Cloned to a temporary
+directory: `.env`, `data/jwt_private.pem` and `data/audit.db` correctly absent;
+`data/` present and writable; `scripts/seed.py` runs; `scripts/verify_seed.py`
+passes against the clone's own committed databases.
+
+**Three fixes applied:**
+
+1. **The README quick start now names `HOST_UID`/`HOST_GID`.** The containers
+   write into the bind-mounted `./data` as `${HOST_UID:-1000}`, and identity-stub
+   generates its signing key there at import. A Linux user whose `id -u` is not
+   1000 would have hit a crash-loop on first run with nothing in the quick start
+   to explain it.
+2. **`.gitattributes` added** — `* text=auto`, `*.db binary`, `*.patch -text`. It
+   was added to a tree already free of CRLF, so it renormalises nothing today;
+   `git add --renormalize .` staged only the two files edited by hand, which is
+   the proof. It exists so no `core.autocrlf` setting on any platform can rewrite
+   a byte of the committed SQLite databases or of the two Session 11 patches,
+   which have to apply exactly.
+3. **Three trailing-whitespace lines stripped** from `ARCHITECTURE.md:181,182,187`.
+   `git diff --ignore-all-space` confirms the change carries no content.
+
+**Four exceptions were reported and deliberately not fixed**, three because they
+are the owner's call and one because it must wait for the demonstration:
+
+- **The Chainlit cookie-secret defaults** (`docker-compose.yml:280,312`) become
+  public knowledge the moment the repository does. Before publishing, confirm the
+  LXC's `.env` sets `CHAINLIT_AUTH_SECRET_ADVISOR` and `_EXEC` to real values;
+  after the demonstration, give them the `${VAR:?...}` treatment
+  `DEEPSEEK_API_KEY` already has. Not changed now, because the certificate
+  describes a stack running those defaults.
+- **The author email on all 83 commits** is public and permanent, and the only
+  fix is the history rewrite already ruled out for breaking the twenty commit
+  SHAs these reports cite.
+- **Scratchpad paths in seven archived reports** leak the local username and
+  per-session UUIDs. Left alone: the incremental disclosure over the author email
+  is nil, and editing historical reports for cosmetics degrades them as a record.
+- **`scripts/seed.py` and `scripts/verify_seed.py` carry shebangs without the
+  executable bit.** Cosmetic, and `scripts/` is frozen until after the
+  demonstration.
+
+**One structural gap, noted rather than papered over:** there is no continuous
+integration, and adding it well is not cheap. `tests/conftest.py` points every
+fixture at `localhost:8000`/`8001`, so the suite needs a live ten-container stack
+and a paid model key. A useful GitHub Actions run would mean carving out a
+stack-free subset, which means editing `tests/`.

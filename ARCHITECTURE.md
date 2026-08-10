@@ -178,11 +178,11 @@ This document asks for four things, because a vision with no decision attached g
 - **MCP (Model Context Protocol)** — an open standard for connecting AI systems to tools and data; each of our sources becomes one MCP server.
 - **PEP (policy enforcement point)** — a place where authorization is independently checked; this design has three.
 - **Token** — a short-lived, signed statement of who a user is and what roles they hold, issued at sign-in and carried through every layer.
-- **Semantic layer** — the single place where institutional terms are defined as data logic, so "enrolled" means one thing everywhere. 
-- **Row-level security** — rules attached to data itself that filter what each identity can see, regardless of the application asking. 
+- **Semantic layer** — the single place where institutional terms are defined as data logic, so "enrolled" means one thing everywhere.
+- **Row-level security** — rules attached to data itself that filter what each identity can see, regardless of the application asking.
 - **Small-cell suppression** — withholding aggregate results about very small groups so individuals cannot be identified; standard practice in federal reporting, applied here to every answer.
 - **Entra ID** — Microsoft's identity platform, Franklin's existing sign-in.
 - **Fabric / OneLake** — Microsoft's data platform, where the governed lake lives.
 - **Foundry** — Microsoft's service for running commercial AI models (including Anthropic's and OpenAI's) inside an Azure environment under institutional governance.
-- **Guardrails** — automated screening applied to requests coming in (hostile input) and answers going out (suppression, citations). 
+- **Guardrails** — automated screening applied to requests coming in (hostile input) and answers going out (suppression, citations).
 - **Audit log** — the append-only record of who asked what, when, under which role, touching which records.
