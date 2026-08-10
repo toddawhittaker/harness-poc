@@ -909,3 +909,71 @@ integration, and adding it well is not cheap. `tests/conftest.py` points every
 fixture at `localhost:8000`/`8001`, so the suite needs a live ten-container stack
 and a paid model key. A useful GitHub Actions run would mean carving out a
 stack-free subset, which means editing `tests/`.
+
+### 12.10 Build and packaging: three proposals, one shipped
+
+Three monorepo improvements were proposed and investigated. **Measuring them
+killed two of the three**, and the numbers that motivated them were partly my own
+error. Recorded in full because the corrections are the useful part.
+
+**Rejected — a shared base image.** The proposal rested on "~5 GB across ten
+images", which was wrong: it summed `docker images` reported sizes, which
+double-count shared layers. Docker already deduplicates the base. The first three
+layers of `harness-poc-audit`, `-gateway` and `-mcp-kuali` are the identical
+`sha256:6f943283…`, `sha256:eeece50a…`, `sha256:4bdf3c4a…`, and across all ten
+images 108 layer references resolve to **48 distinct layers**. The only
+unshareable part is each service's own venv, whose contents genuinely differ. A
+shared base would have saved approximately nothing.
+
+**Kept, but not for the stated reason — `.dockerignore`.** The proposal claimed
+all ten builds each ship 38 MB of context. Measured with and without the file on
+the same service: **6.41 kB without, 1.4 kB with.** BuildKit already transfers
+lazily, so the performance argument was wrong. The file is kept as a *guardrail*
+rather than an optimisation: it makes it structurally impossible for
+`data/jwt_private.pem`, `data/audit.db` or `.env` to enter a build context, even
+if someone later writes `COPY . .`. Everything it excludes was verified
+unreferenced by any Dockerfile — `config/`, `data/` and `tunnel/` arrive as
+runtime bind mounts, `scripts/` and `tests/` are host-only.
+
+**Shipped — the `uv` workspace.** This was the real finding. Ten independent
+lockfiles had already drifted: `websockets` was pinned **16.1.1** under the
+gateway and orchestrator and **17.0.1** under the other six, which is exactly the
+failure mode a workspace prevents. The root `pyproject.toml` now declares
+`[tool.uv.workspace]` with members `libs/*`, `services/*`, `apps/*`; the six
+services that use the shared libraries declare them `{ workspace = true }`
+instead of by path; the ten per-service `uv.lock` files are replaced by one root
+lock covering 198 packages; and each Dockerfile copies the root manifest and lock
+before syncing its member.
+
+**The unified resolution is not a no-op, and here is exactly what moved.** No
+package was dropped; 35 changed version:
+
+| Change | Affects |
+|---|---|
+| `typing-inspection` 0.4.2 → 0.4.3 | all ten services |
+| `websockets` 17.0.1 → **16.1.1** | the six services that were ahead; converges on what the gateway and orchestrator already ran |
+| `httpx2` / `httpcore2` 2.9.1 → 2.10.0 | gateway, orchestrator |
+| 32 `opentelemetry-instrumentation-*` and `traceloop-sdk` 0.62.1 → 0.62.3 | the two Chainlit surfaces |
+
+`httpx` itself is **unchanged at 0.28.1** — `httpx2` is a separate distribution,
+and an earlier characterisation of this as an httpx bump under the certified
+services was imprecise.
+
+**Verification, because this rebuilt every image in a certified stack.** All ten
+images rebuilt; all ten containers healthy; **`uv run pytest tests/ -q` → 162
+passed**; and a live spot-check of the two beats most likely to expose a
+regression, rows 10001–10021:
+
+```
+10009 mcp-canvas get_section_engagement args_hash 8dcd893de78e decision=refused
+      "Section BUS-201-A is not among your assigned sections; cross-section views belong to the dean."
+10006 noor  reasoning=False  lat= 6.6s   10012 noor reasoning=False lat=4.5s
+10021 kim   reasoning=True   lat=23.8s   6 model calls, zero cold cache, min hit 896
+```
+
+Demo moment 5's tool-layer refusal still fires with the spec string verbatim, the
+reasoning routing still assigns `False` to the protected faculty cell and `True`
+to the dean's synthesis, and the prompt cache is undisturbed.
+
+`SPEC.md` §1 was amended to match, since it specified a `uv.lock` per service and
+the repository would otherwise contradict its own master document.

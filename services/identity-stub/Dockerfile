@@ -10,8 +10,11 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1
 
+# The workspace root: one lockfile covers every member (see pyproject.toml).
+COPY pyproject.toml uv.lock /app/
+
 WORKDIR /app/services/identity-stub
-COPY services/identity-stub/pyproject.toml services/identity-stub/uv.lock ./
+COPY services/identity-stub/pyproject.toml ./
 RUN uv sync --frozen
 COPY services/identity-stub/ ./
 

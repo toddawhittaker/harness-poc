@@ -1,0 +1,40 @@
+# All ten images build with `context: .` (docker-compose.yml), so without this
+# file Docker ships the entire working tree to the daemon ten times per build —
+# about 38 MB each, 31 MB of which is the host .venv the images never touch.
+#
+# Everything excluded here is verified unreferenced by any Dockerfile. config/,
+# data/ and tunnel/ reach the containers as runtime bind mounts, not COPY, and
+# scripts/ and tests/ run on the host. What the images actually consume is
+# libs/, services/<name>/ and apps/<name>/, which are all still in context.
+
+.git
+.gitignore
+.gitattributes
+.venv
+
+# Runtime bind mounts — see docker-compose.yml. data/ also holds the signing key
+# and the audit log, which have no business in a build context.
+config/
+data/
+tunnel/
+
+# Host-only.
+scripts/
+tests/
+
+# Documentation and tooling. Note this does NOT exclude *.md generally:
+# apps/*/chainlit.md is the welcome screen and is copied into both UI images.
+docs/
+reports/
+.claude/
+
+# Never, under any circumstances.
+.env
+.env.*
+
+**/__pycache__/
+**/.pytest_cache/
+**/*.egg-info/
+**/.files/
+**/.chainlit/translations/
+*.pyc

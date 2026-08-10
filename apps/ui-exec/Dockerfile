@@ -8,8 +8,11 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1
 
+# The workspace root: one lockfile covers every member (see pyproject.toml).
+COPY pyproject.toml uv.lock /app/
+
 WORKDIR /app/apps/ui-exec
-COPY apps/ui-exec/pyproject.toml apps/ui-exec/uv.lock ./
+COPY apps/ui-exec/pyproject.toml ./
 RUN uv sync --frozen
 COPY apps/ui-exec/ ./
 

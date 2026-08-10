@@ -13,8 +13,11 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 COPY libs/harness_auth /app/libs/harness_auth
 COPY libs/harness_models /app/libs/harness_models
 
+# The workspace root: one lockfile covers every member (see pyproject.toml).
+COPY pyproject.toml uv.lock /app/
+
 WORKDIR /app/services/gateway
-COPY services/gateway/pyproject.toml services/gateway/uv.lock ./
+COPY services/gateway/pyproject.toml ./
 RUN uv sync --frozen
 COPY services/gateway/ ./
 

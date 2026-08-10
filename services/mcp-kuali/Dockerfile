@@ -12,8 +12,11 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 
 COPY libs/harness_auth /app/libs/harness_auth
 
+# The workspace root: one lockfile covers every member (see pyproject.toml).
+COPY pyproject.toml uv.lock /app/
+
 WORKDIR /app/services/mcp-kuali
-COPY services/mcp-kuali/pyproject.toml services/mcp-kuali/uv.lock ./
+COPY services/mcp-kuali/pyproject.toml ./
 RUN uv sync --frozen
 COPY services/mcp-kuali/ ./
 

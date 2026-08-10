@@ -12,8 +12,11 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 
 COPY libs/harness_auth /app/libs/harness_auth
 
+# The workspace root: one lockfile covers every member (see pyproject.toml).
+COPY pyproject.toml uv.lock /app/
+
 WORKDIR /app/services/mcp-canvas
-COPY services/mcp-canvas/pyproject.toml services/mcp-canvas/uv.lock ./
+COPY services/mcp-canvas/pyproject.toml ./
 RUN uv sync --frozen
 COPY services/mcp-canvas/ ./
 

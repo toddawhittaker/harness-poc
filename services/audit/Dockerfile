@@ -9,8 +9,11 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1
 
+# The workspace root: one lockfile covers every member (see pyproject.toml).
+COPY pyproject.toml uv.lock /app/
+
 WORKDIR /app/services/audit
-COPY services/audit/pyproject.toml services/audit/uv.lock ./
+COPY services/audit/pyproject.toml ./
 RUN uv sync --frozen
 COPY services/audit/ ./
 

@@ -17,4 +17,4 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
-harness-auth = { path = "../../libs/harness_auth", editable = true }
+harness-auth = { workspace = true }

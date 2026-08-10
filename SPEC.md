@@ -23,7 +23,7 @@ Out of scope, deliberately: writes, small-cell suppression, streaming-token UX p
 
 ## 1. Stack (pin these)
 
-- Python 3.12 everywhere. Package management with `uv` (one `pyproject.toml` per service, `uv.lock` committed).
+- Python 3.12 everywhere. Package management with `uv` (one `pyproject.toml` per service, lockfile committed). **Amended after the build closed:** the services were built with a `uv.lock` each, and they drifted — `websockets` was pinned 16.1.1 under the gateway and orchestrator and 17.0.1 everywhere else. They are now a single `uv` workspace (`[tool.uv.workspace]` in the root `pyproject.toml`, members `libs/*`, `services/*`, `apps/*`) with **one committed `uv.lock` at the root**, so a dependency bump is one review instead of ten. Each service keeps its own `pyproject.toml` and declares the shared libs as `{ workspace = true }`.
 - FastAPI + uvicorn for gateway, identity-stub, audit.
 - Pydantic AI (latest stable) for the orchestrator agent.
 - MCP Python SDK (latest stable), FastMCP servers, **streamable HTTP transport**.

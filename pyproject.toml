@@ -16,6 +16,13 @@ dependencies = [
 [tool.uv]
 package = false
 
+# One lockfile for the whole monorepo. Before this, each service carried its
+# own uv.lock and they drifted: websockets was pinned 16.1.1 under gateway and
+# orchestrator and 17.0.1 everywhere else. A workspace resolves every member
+# against one graph, so a dependency bump is one review instead of ten.
+[tool.uv.workspace]
+members = ["libs/*", "services/*", "apps/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # The session2 tests were written ahead of the code they cover (the
