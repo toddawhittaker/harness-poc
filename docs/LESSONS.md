@@ -993,3 +993,28 @@ not:
   from from which system it is about. Entry 5's groundedness guard checks only
   the first, which is also why it cannot catch the wart where canvas figures were
   cited `[colleague]`.
+- **Whether a model's reasoning can be shown to a user at all, in a system that
+  claims receipts.** Nothing here streams: the surfaces make one blocking call
+  and render the final text, and the reasoning is never captured — the `thinking`
+  flag goes to DeepSeek in `extra_body` and no code reads `reasoning_content`
+  back. Showing it is not hard in itself. The libraries already carry the pieces
+  (`ThinkingPart` in pydantic-ai, `cl.Step` in Chainlit), and a collapsible
+  "thinking" panel needs no streaming at all — a Step populated once the reply
+  lands gives the click-to-expand widget; token-by-token would mean server-sent
+  events through the orchestrator and the gateway, which is a different project.
+  **The reason not to build it UI-first is governance, not effort.** Reasoning
+  content is not in the audit trail and the groundedness guard never sees it, so
+  rendering it puts something on the user's screen that no audit row describes —
+  in a demonstration whose ninth beat is *every question, every refusal, on the
+  record*. In a governed harness the honest order is **capture, then audit, then
+  render**: decide what reasoning is retained and for how long, decide who may
+  see it given that it can quote data the answer withheld, put it on the record,
+  and only then draw it. Two smaller things fall out of the same design. Under
+  per-intent routing only some questions have reasoning to show — here only a
+  dean's synthesis beats — so the affordance has to be honestly absent rather
+  than empty on everything else. And reasoning is exactly the unedited scratch
+  work the build spent sessions keeping *out* of the visible answer: the worst
+  cosmetic finding in `DEMO_VERIFICATION.md`'s record is a reply that leaked
+  *"deep learning — wait, that's not in any program. Let me be systematic."* onto
+  the screen. Showing it deliberately is defensible; showing it accidentally is
+  the same text.
