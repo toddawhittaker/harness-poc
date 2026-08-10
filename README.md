@@ -217,10 +217,14 @@ flowchart LR
         E["Executive Insights<br/>:8081"]
     end
 
-    G["<b>gateway</b> :8000<br/>verify_token<br/>router triage, not a judge<br/><i>fails open on a parse error</i>"]
-    O["<b>orchestrator</b> :8010<br/>verify_token<br/>registry filtering hides tools<br/><i>defence in depth, not the boundary</i>"]
+    %% Plain text in labels, no <b> or <i>. GitHub measures an italic run with
+    %% non-italic font metrics, sizes the box too narrow, and then clips the text
+    %% mid-word instead of wrapping. Keep the lines short and let the prose below
+    %% carry the nuance.
+    G["gateway :8000<br/>verify_token<br/>router triage"]
+    O["orchestrator :8010<br/>verify_token<br/>registry filtering"]
 
-    subgraph tools["Governed tool servers — verify_token, then DECIDE"]
+    subgraph tools["Governed tool servers — they decide"]
         C["mcp-colleague :8021"]
         L["mcp-labor :8022"]
         N["mcp-canvas :8023"]
@@ -228,6 +232,8 @@ flowchart LR
     end
 
     D[("audit :8030<br/>every question,<br/>every refusal")]
+    %% Explicitly styled: an unclassed node inherits GitHub's dark theme and
+    %% renders black among light ones.
 
     A -- "Bearer" --> G
     E -- "Bearer" --> G
@@ -251,6 +257,7 @@ flowchart LR
     classDef plain fill:#eef2ff,stroke:#4f46e5,color:#111827
     class C,L,N,K enforce
     class A,E,G,O plain
+    class D plain
     style tools fill:#fff1f2,stroke:#b91c1c,stroke-dasharray:4 3,color:#7f1d1d
     style surfaces fill:#f8fafc,stroke:#94a3b8,stroke-dasharray:4 3,color:#334155
 ```
