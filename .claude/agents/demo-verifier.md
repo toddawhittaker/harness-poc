@@ -1,6 +1,7 @@
 ---
 name: demo-verifier
 description: Runs the demo script end to end against the live stack and reports divergences. Use at the end of each session.
+tools: Bash, Read, Grep, Glob
 ---
 Execute SPEC.md §7 against the running stack using curl (mint tokens from
 identity-stub for dana, kim, pat). For each step record: request, expected
